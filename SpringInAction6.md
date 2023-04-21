@@ -56,7 +56,7 @@
     - 启用了 LiveReload server，如果浏览器安装了 LiveReload server插件，则无需手动刷新浏览器，插件会进行自动刷新
     - https://chrome.google.com/webstore/detail/live-reload/jcejoncdonagmfohjcdgohnmecaipidc?hl=en-US
 - 使用H2数据库时，内置H2控制台
-    - http:/ /localhost:8080/h2-console
+    - http://localhost:8080/h2-console
 
 ## spring auto configuration做了什么
 - 检测依赖的包，并自动创建需要的bean
@@ -76,6 +76,7 @@
 - 这个注解只能标注在类上，用于在多个请求之间传递参数，类似于Session的Attribute。但不完全一样：一般来说@SessionAttributes设置的参数只用于暂时的传递，而不是长期的保存，长期保存的数据还是要放到Session中
 - 当用@SessionAttributes标注的Controller向其模型Model添加属性时，将根据该注解指定的名称/类型检查这些属性，若匹配上了就顺带也会放进Session里。匹配上的将一直放在Sesson中，直到你调用了SessionStatus.setComplete()方法就消失了
 - SessionAttributesHandler, 见名之意，它是@SessionAttributes处理器，也就是解析这个注解的核心。管理通过@SessionAttributes标注了的特定会话属性，存储最终是委托了SessionAttributeStore来实现
+- RequestMappingHandlerAdapter中getModelFactory时会为每个controller创建一个SessionAttributesHandler
 - ModelFactory
     - Spring MVC对@SessionAttributes的处理操作入口，是在ModelFactory.initModel()方法里会对@SessionAttributes的注解进行解析、处理，然后方法完成之后也会对它进行属性同步。
     - ModelFactory是用来维护Model的，具体包含两个功能：
@@ -221,3 +222,15 @@ public class WebConfig implements WebMvcConfigurer {
 	}
 }
 ```
+
+# Working with data
+## h2 console
+- http://localhost:8080/h2-console
+- jdbc:h2:mem:tacocloud
+## jdbc
+- 当只有一个构造器方法时，Spring自动通过该构造函数的参数装配依赖项
+- 如果有多个构造器方法，想要使用哪个方法装配依赖项，则需要在对应的构造器方法上加@Autowired
+
+## schema.sql, data.sql
+- 如果在根目录下有一个schema.sql文件，则在spring boot项目启动时会执行这个文件的sql
+- 如果在根目录下有一个data.sql文件，则在spring boot项目启动时会执行这个文件的sql

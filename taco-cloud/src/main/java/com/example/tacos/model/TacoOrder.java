@@ -1,6 +1,7 @@
 package com.example.tacos.model;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 
 import org.hibernate.validator.constraints.CreditCardNumber;
@@ -12,6 +13,8 @@ import lombok.Data;
 
 @Data
 public class TacoOrder {
+	private Long id;
+
 	@NotBlank(message = "Delivery name is required")
 	private String deliveryName;
 	@NotBlank(message = "Street is required")
@@ -29,6 +32,8 @@ public class TacoOrder {
 	@Digits(integer = 3, fraction = 0, message = "Invalid CVV")
 	private String ccCVV;
 	private List<Taco> tacos = new ArrayList<>();
+
+	private Date placedAt = new Date();
 
 	public void addTaco(Taco taco) {
 		this.tacos.add(taco);
