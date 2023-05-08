@@ -1,12 +1,17 @@
 package com.example.tacos.controller;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import org.springframework.stereotype.Controller;
 import org.springframework.validation.Errors;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.SessionAttributes;
 import org.springframework.web.bind.support.SessionStatus;
+import org.springframework.web.servlet.ModelAndView;
 
 import com.example.tacos.dao.OrderRepository;
 import com.example.tacos.model.TacoOrder;
@@ -30,6 +35,16 @@ public class OrderController {
 		return "orderForm";
 	}
 
+	@GetMapping("/{id}")
+	public ModelAndView order(@PathVariable(name = "id", required = true) String id) {
+		Map<String, Object> dataMap = new HashMap<>();
+		if (this.orderRepo.findById(id).orElseGet(() -> null) != null) {
+			dataMap.put("tacoOrder", this.orderRepo.findById(id).get());
+			return new ModelAndView("orderDetail", dataMap);
+		}
+		return new ModelAndView("notFound");
+	}
+
 	@PostMapping
 	public String processOrder(@Valid TacoOrder order, Errors errors, SessionStatus sessionStatus) {
 		if (errors.hasErrors()) {
@@ -37,8 +52,8 @@ public class OrderController {
 		}
 
 		log.info("Order submitted: {}", order);
-		orderRepo.save(order);
+		TacoOrder newOrder = orderRepo.save(order);
 		sessionStatus.setComplete();
-		return "redirect:/";
+		return "redirect:/orders/" + newOrder.getId();
 	}
 }

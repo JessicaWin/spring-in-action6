@@ -1,5 +1,6 @@
 package com.example.tacos.controller;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -35,7 +36,7 @@ public class DesignTacoController {
 
 	@ModelAttribute
 	public void addIngredientsToModel(Model model) {
-		List<Ingredient> ingredients = ingredientRepo.findAll();
+		Iterable<Ingredient> ingredients = ingredientRepo.findAll();
 		Type[] types = Ingredient.Type.values();
 		for (Type type : types) {
 			model.addAttribute(type.toString().toLowerCase(), filterByType(ingredients, type));
@@ -68,7 +69,9 @@ public class DesignTacoController {
 		return "redirect:/orders/current";
 	}
 
-	private Iterable<Ingredient> filterByType(List<Ingredient> ingredients, Type type) {
-		return ingredients.stream().filter(x -> x.getType().equals(type)).collect(Collectors.toList());
+	private Iterable<Ingredient> filterByType(Iterable<Ingredient> ingredients, Type type) {
+		List<Ingredient> ingredientList = new ArrayList<Ingredient>();
+		ingredients.forEach(ingredientList::add);
+		return ingredientList.stream().filter(x -> x.getType().equals(type)).collect(Collectors.toList());
 	}
 }

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html xmlns="http:/ /www.w3.org/1999/xhtml" xmlns:th="http:/ /www.thymeleaf.org">
+
+<head>
+    <title>Taco Cloud</title>
+    <link rel="stylesheet" th:href="@{/styles.css}" />
+</head>
+
+<body>
+    <h1>Order Detail:</h1>
+    <h3>Your tacos in this order:</h3>
+    <ul>
+        <li th:each="taco : ${tacoOrder.tacos}">
+            <span th:text="${taco.name}">taco name</span>
+            <ul>
+		        <li th:each="ingredientRef : ${taco.ingredients}">
+		            <span th:text="${ingredientRef.ingredient}">ingredient name</span>
+		        </li>
+		    </ul>
+        </li>
+    </ul>
+    <h3>Deliver my taco masterpieces to...</h3>
+    <label>Name: </label>
+    <label th:text="${tacoOrder.deliveryName}">Name: </label>
+    <br />
+    <label>Street address: </label>
+    <label th:text="${tacoOrder.deliveryStreet}">Name: </label>
+	<br />
+    <label>City: </label>
+    <label th:text="${tacoOrder.deliveryCity}">Name: </label>
+    <br />
+    <label>State: </label>
+    <label th:text="${tacoOrder.deliveryState}">Name: </label>
+    <br />
+    <label>Zip code: </label>
+    <label th:text="${tacoOrder.deliveryZip}">Name: </label>
+    <br />
+    <h3>Here's how I'll pay...</h3>
+    <label>Credit Card #: </label>
+    <label th:text="${tacoOrder.ccNumber}">Name: </label>
+	<br />
+    <label for="ccExpiration">Expiration: </label>
+    <label th:text="${tacoOrder.ccExpiration}">Name: </label>
+    <br />
+    <label for="ccCVV">CVV: </label>
+    <label th:text="${tacoOrder.ccCVV}">Name: </label>
+    <br />
+</body>
+
+</html>
