@@ -14,7 +14,7 @@
             <span th:text="${taco.name}">taco name</span>
             <ul>
 		        <li th:each="ingredientRef : ${taco.ingredients}">
-		            <span th:text="${ingredientRef.ingredient}">ingredient name</span>
+		            <span th:text="${ingredientRef.name}">ingredient name</span>
 		        </li>
 		    </ul>
         </li>
