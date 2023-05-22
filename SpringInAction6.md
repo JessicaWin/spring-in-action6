@@ -234,3 +234,87 @@ public class WebConfig implements WebMvcConfigurer {
 ## schema.sql, data.sql
 - 如果在根目录下有一个schema.sql文件，则在spring boot项目启动时会执行这个文件的sql
 - 如果在根目录下有一个data.sql文件，则在spring boot项目启动时会执行这个文件的sql
+
+## Reading and writing data with JDBC
+- spring-boot-starter-jdbc
+- org.springframework.jdbc.core.JdbcTemplate
+- 需要自己实现dao层与数据库交互的代码，代码中只需关心sql语句，无需关心sql连接的建立和释放
+
+## Working with Spring Data JDBC
+- spring-boot-starter-data-jdbc
+- org.springframework.data.repository.Repository
+- org.springframework.data.repository.CrudRepository
+- 无需实现dao层代码，只需要定义接口，接口extend Repository或者CrudRepository， spring data jdbc会自动生成代码实现
+- 注解
+    - org.springframework.data.relational.core.mapping.Table
+    - org.springframework.data.annotation.Id;
+    - org.springframework.data.relational.core.mapping.Column
+
+## Persisting data with Spring Data JPA
+- spring-boot-starter-data-jpa
+- org.springframework.data.repository.Repository
+- org.springframework.data.repository.CrudRepository
+- 无需实现dao层代码，只需要定义接口，接口extend Repository或者CrudRepository， spring data jdbc会自动生成代码实现
+- 注解
+    - jakarta.persistence.Entity;
+    - jakarta.persistence.GeneratedValue;
+    - jakarta.persistence.GenerationType;
+    - jakarta.persistence.Id;
+    - jakarta.persistence.ManyToMany
+    - jakarta.persistence.OneToMany
+- 配置
+    - spring.jpa.generate-ddl：Whether to initialize the schema on startup
+    - spring.jpa.hibernate.ddl-auto：DDL mode. This is actually a shortcut for the "hibernate.hbm2ddl.auto" property. Defaults to "create-drop" when using an embedded database and no schema manager was detected. Otherwise, defaults to "none".
+
+
+# Working with nonrelational data
+## Working with Cassandra repositories
+- spring-boot-starter-data-cassandra
+- 注解
+    - org.springframework.data.cassandra.core.mapping.PrimaryKey;
+    - org.springframework.data.cassandra.core.mapping.Table;
+    - org.springframework.data.cassandra.core.cql.Ordering;
+    - org.springframework.data.cassandra.core.cql.PrimaryKeyType;
+    - org.springframework.data.cassandra.core.mapping.Column;
+    - org.springframework.data.cassandra.core.mapping.UserDefinedType
+## Writing MongoDB repositories
+- spring-boot-starter-data-mongodb
+-  注解
+    - org.springframework.data.annotation.Id;
+    - org.springframework.data.mongodb.core.mapping.Document;
+
+# Securing Spring
+## Enabling Spring Security
+- pom中添加spring-boot-starter-security依赖
+- spring-boot-starter-security提供了一个默认的登录页面，默认username为：user，每次项目启动时会生成一个随机的uuid作为密码
+    - Using generated security password: 2b94e0bd-0380-4293-842d-7d3dffca0c8c
+- UsernamePasswordAuthenticationFilter会对请求进行验证，验证通过之后会生成一个sessionId，写入cookie中
+
+## password encoder
+- BCryptPasswordEncoder—Applies bcrypt strong hashing encryption
+- NoOpPasswordEncoder—Applies no encoding
+- Pbkdf2PasswordEncoder—Applies PBKDF2 encryption
+- SCryptPasswordEncoder—Applies Scrypt hashing encryption
+- StandardPasswordEncoder—Applies SHA-256 hashing encryption
+- 数据库中存储的password是encode之后的，数据库的password永远不会被decode，需要验证时会将用户输入的密码进行encode之后与数据库存储的进行比较。由PasswordEncoder的matches() 方法实现
+
+## 配置user store
+- 需要声明一个UserDetailsService类型的bean
+- Spring Security提供了几种UserDetailsService的实现
+    - An in-memory user store
+    - A JDBC user store
+    - An LDAP user store
+
+### in-memory user store
+
+```
+    @Bean
+	public UserDetailsService userDetailsService(PasswordEncoder encoder) {
+		List<UserDetails> usersList = new ArrayList<>();
+		usersList.add(
+				new User("buzz", encoder.encode("password"), Arrays.asList(new SimpleGrantedAuthority("ROLE_USER"))));
+		usersList.add(
+				new User("woody", encoder.encode("password"), Arrays.asList(new SimpleGrantedAuthority("ROLE_USER"))));
+		return new InMemoryUserDetailsManager(usersList);
+	}
+```
