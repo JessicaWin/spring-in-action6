@@ -318,3 +318,65 @@ public class WebConfig implements WebMvcConfigurer {
 		return new InMemoryUserDetailsManager(usersList);
 	}
 ```
+
+###  Customizing user authentication
+- Defining a user entity
+- Create interface: UserRepository extends CrudRepository<User, Long>, no need to implement, define one methodin interface: User findByUsername(String username);
+- Create a UserDetailsService
+```
+@Bean
+public UserDetailsService userDetailsService(UserRepository userRepo) {
+ return username -> {
+ User user = userRepo.findByUsername(username);
+ if (user != null) return user;
+ throw new UsernameNotFoundException("User '" + username + "' not found");
+ };
+}
+```
+- Create user Registration page
+
+## Securing web requests
+- HttpSecurity充当构建器,用于配置如何在 Web 级别处理安全性
+- HttpSecurity维护了一个过滤器的列表，这个过滤器的列表最终放入了DefaultSecurityFilterChain这个过滤器链中
+- HttpSecurity最终提供了很多的配置，然而所有的配置也都是为了处理维护我们的过滤器列表
+- 用于配置某个路径的安全策略
+![path_secure_choice](./path_secure_choice.png)
+- HttpSecurity方法说明
+    - openidLogin()	用于基于 OpenId 的验证
+    - headers()	将安全标头添加到响应
+    - cors()	配置跨域资源共享（ CORS ）
+    - sessionManagement()	允许配置会话管理
+    - portMapper()	允许配置一个PortMapper(HttpSecurity#(getSharedObject(class)))，其他提供SecurityConfigurer的对象使用 PortMapper 从 HTTP 重定向到 HTTPS 或者从 HTTPS 重定向到 HTTP。默认情况下，Spring Security使用一个PortMapperImpl映射 HTTP 端口8080到 HTTPS 端口8443，HTTP 端口80到 HTTPS 端口443
+    - jee()	配置基于容器的预认证。 在这种情况下，认证由Servlet容器管理
+    - x509()	配置基于x509的认证
+    - rememberMe	允许配置“记住我”的验证
+    - authorizeRequests()	允许基于使用HttpServletRequest限制访问
+    - requestCache()	允许配置请求缓存
+    - exceptionHandling()	允许配置错误处理
+    - securityContext()	在HttpServletRequests之间的SecurityContextHolder上设置SecurityContext的管理。 当使用WebSecurityConfigurerAdapter时，这将自动应用
+    - servletApi()	将HttpServletRequest方法与在其上找到的值集成到SecurityContext中。 当使用WebSecurityConfigurerAdapter时，这将自动应用
+    - csrf()	添加 CSRF 支持，使用WebSecurityConfigurerAdapter时，默认启用
+    - logout()	添加退出登录支持。当使用WebSecurityConfigurerAdapter时，这将自动应用。默认情况是，访问URL”/ logout”，使HTTP Session无效来清除用户，清除已配置的任何#rememberMe()身份验证，清除SecurityContextHolder，然后重定向到”/login?success”
+    - anonymous()	允许配置匿名用户的表示方法。 当与WebSecurityConfigurerAdapter结合使用时，这将自动应用。 默认情况下，匿名用户将使用org.springframework.security.authentication.AnonymousAuthenticationToken表示，并包含角色 “ROLE_ANONYMOUS”
+    - formLogin()	指定支持基于表单的身份验证。如果未指定FormLoginConfigurer#loginPage(String)，则将生成默认登录页面
+    - oauth2Login()	根据外部OAuth 2.0或OpenID Connect 1.0提供程序配置身份验证
+    - requiresChannel()	配置通道安全。为了使该配置有用，必须提供至少一个到所需信道的映射
+    - httpBasic()	配置 Http Basic 验证
+    - addFilterAt()	在指定的Filter类的位置添加过滤器
+- 使用
+    - authorizeHttpRequests 用于配置每个路径需要使用什么安全策略
+    - headers, 将安全标头添加到响应， 由于h2-console是以iframe的形式嵌入在页面上的，所以这里必须配置frameOptions，headers.frameOptions().sameOrigin() 和headers.frameOptions().disable()都可以，否则的话h2-console将无法正常显示
+    - formLogin： 用于配置登录页面，这里不作额外配置就是使用默认登录页面，如果不加formLogin，将不会使用任何登录页面，默认登录页面也没有
+```
+	@Bean
+	SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+		return http
+				.authorizeHttpRequests(auth -> auth.requestMatchers(AntPathRequestMatcher.antMatcher("/h2-console/**"))
+						.permitAll().requestMatchers("/design", "/orders").hasRole("USER").requestMatchers("/", "/**")
+						.permitAll())
+				.headers(headers -> headers.frameOptions().sameOrigin())
+				.csrf(csrf -> csrf.ignoringRequestMatchers(AntPathRequestMatcher.antMatcher("/h2-console/**")))
+				.formLogin().and().build();
+	}
+```
+## Creating a custom login page

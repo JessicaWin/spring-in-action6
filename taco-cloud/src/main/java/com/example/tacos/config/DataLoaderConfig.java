@@ -11,7 +11,7 @@ import com.example.tacos.model.Ingredient.Type;
 @Configuration
 public class DataLoaderConfig {
 	@Bean
-	public CommandLineRunner dataLoader(IngredientRepository repo) {
+	CommandLineRunner dataLoader(IngredientRepository repo) {
 		return args -> {
 			repo.save(new Ingredient("FLTO", "Flour Tortilla", Type.WRAP));
 			repo.save(new Ingredient("COTO", "Corn Tortilla", Type.WRAP));
