@@ -46,9 +46,10 @@ public class SecurityConfig {
 				.authorizeHttpRequests(auth -> auth.requestMatchers(AntPathRequestMatcher.antMatcher("/h2-console/**"))
 						.permitAll().requestMatchers("/design", "/orders", "/current").hasRole("USER")
 						.requestMatchers("/", "/**").permitAll())
-				.headers(headers -> headers.frameOptions().sameOrigin())
-				.csrf(csrf -> csrf.ignoringRequestMatchers(AntPathRequestMatcher.antMatcher("/h2-console/**")))
-				.formLogin().and().build();
+				.headers(headers -> headers.frameOptions().sameOrigin()).csrf().disable().formLogin()
+				.loginPage("/login").loginProcessingUrl("/authenticate").usernameParameter("username")
+				.passwordParameter("password").defaultSuccessUrl("/design").and().logout().logoutSuccessUrl("/login")
+				.and().build();
 	}
 
 }
