@@ -380,3 +380,315 @@ public UserDetailsService userDetailsService(UserRepository userRepo) {
 	}
 ```
 ## Creating a custom login page
+    - cofig SecurityFilterChain
+    ```
+        @Bean
+	SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+		return http
+				.authorizeHttpRequests(auth -> auth.requestMatchers(AntPathRequestMatcher.antMatcher("/h2-console/**"))
+						.permitAll().requestMatchers("/design", "/orders", "/current").hasRole("USER")
+						.requestMatchers("/", "/**").permitAll())
+				.headers(headers -> headers.frameOptions().sameOrigin())
+				.csrf(csrf -> csrf.ignoringRequestMatchers(AntPathRequestMatcher.antMatcher("/h2-console/**")))
+				.formLogin().loginPage("/login").loginProcessingUrl("/authenticate").usernameParameter("username")
+				.passwordParameter("password").defaultSuccessUrl("/design").and().logout()
+				.logoutSuccessUrl("/login").and().build();
+	}
+    ```
+    - prepare login page html
+    ```
+    <!DOCTYPE html>
+    <html xmlns="http:/ /www.w3.org/1999/xhtml"
+    xmlns:th="http:/ /www.thymeleaf.org">
+    <head>
+    <title>Taco Cloud</title>
+    </head>
+    <body>
+    <h1>Login</h1>
+    <img th:src="@{/images/TacoCloud.png}"/>
+    <div th:if="${error}">
+    Unable to login. Check your username and password.
+    </div>
+    <p>New here? Click
+    <a th:href="@{/register}">here</a> to register.</p>
+    <form method="POST" th:action="@{/authenticate}" id="loginForm">
+    <label for="username">Username: </label>
+    <input type="text" name="username" id="username" /><br/>
+    <label for="password">Password: </label>
+    <input type="password" name="password" id="password" /><br/>
+    <input type="submit" value="Login"/>
+    </form>
+    </body>
+    </html>
+    ```
+    - sets up the login page view controller 
+    ```
+    @Configuration
+    public class WebConfig implements WebMvcConfigurer {
+        @Override
+        public void addViewControllers(ViewControllerRegistry registry) {
+            registry.addViewController("/login");
+        }
+    }
+    ```
+
+
+## Preventing cross-site request forgery
+
+- spring的CsrfFilter会从request的参数中解析出csrf token， 与request的session中的csrf token进行比对
+
+
+## HttpSecurity：
+- 配置filter
+    - cors()： CorsConfigurer, CorsFilter
+    - csrf()： CsrfConfigurer, CsrfFilter
+    - exceptionHandling(): ExceptionHandlingConfigurer, ExceptionTranslationFilter
+    - formLogin(): FromLoginConfigure: UsernamePasswordAuthenticationFilter
+    - headers(): HeadersConfigurer： HeaderWriterFilter
+    - httpBasic(): HttpBasicConfigurer: BasicAuthenticationFilter
+    - jee(): JeeConfigurer, J2eePreAuthenticatedProcessingFilter
+    - logout(): LogoutConfigurer, LogoutFilter
+    - oauth2Client(): OAuth2ClientConfigurer, OAuth2AuthorizationRequestRedirectFilter, OAuth2AuthorizationCodeGrantFilter
+    - oauth2Login(): OAuth2LoginConfigurer, OAuth2AuthorizationRequestRedirectFilter, OAuth2LoginAuthenticationFilter
+    - oauth2ResourceServer(): OAuth2ResourceServerConfigurer, BearerTokenAuthenticationFilter
+    - passwordManagement: PasswordManagementConfigurer, RequestMatcherRedirectFilter
+    - portMapper: PortMapperConfigurer, 
+    - rememberMe()： RememberMeConfigurer, RememberMeAuthenticationFilter， DefaultLoginPageGeneratingFilter
+    - requestCache(): RequestCacheConfigurer, RequestCacheAwareFilter
+    - requiresChannel():ChannelSecurityConfigurer, ChannelProcessingFilter
+    - saml2Login: Saml2LoginConfigurer, Saml2WebSsoAuthenticationRequestFilter
+    - saml2Logout: Saml2LogoutConfigurer, Saml2LogoutRequestFilter, Saml2LogoutResponseFilter, LogoutFilter
+    - securityContext():  SecurityContextConfigurer
+        - if requireExplicitSave is true： SecurityContextHolderFilter, 
+        - else SecurityContextPersistenceFilter, ForceEagerSessionCreationFilter
+    - servletApi(): ServletApiConfigurer, SecurityContextHolderAwareRequestFilter
+    - sessionManagement(): SessionManagementConfigurer, SessionManagementFilter, ConcurrentSessionFilter， DisableEncodeUrlFilter， ForceEagerSessionCreationFilter
+    - x509(): X509Configurer, X509AuthenticationFilter
+- HttpSecurity是如何进行初始化的
+    - HttpSecurityConfiguration
+    ```
+    @Bean(HTTPSECURITY_BEAN_NAME)
+	@Scope("prototype")
+	HttpSecurity httpSecurity() throws Exception {
+		LazyPasswordEncoder passwordEncoder = new LazyPasswordEncoder(this.context);
+		AuthenticationManagerBuilder authenticationBuilder = new DefaultPasswordEncoderAuthenticationManagerBuilder(
+				this.objectPostProcessor, passwordEncoder);
+		authenticationBuilder.parentAuthenticationManager(authenticationManager());
+		authenticationBuilder.authenticationEventPublisher(getAuthenticationEventPublisher());
+		HttpSecurity http = new HttpSecurity(this.objectPostProcessor, authenticationBuilder, createSharedObjects());
+		WebAsyncManagerIntegrationFilter webAsyncManagerIntegrationFilter = new WebAsyncManagerIntegrationFilter();
+		webAsyncManagerIntegrationFilter.setSecurityContextHolderStrategy(this.securityContextHolderStrategy);
+		// @formatter:off
+		http
+			.csrf(withDefaults())
+			.addFilter(webAsyncManagerIntegrationFilter)
+			.exceptionHandling(withDefaults())
+			.headers(withDefaults())
+			.sessionManagement(withDefaults())
+			.securityContext(withDefaults())
+			.requestCache(withDefaults())
+			.anonymous(withDefaults())
+			.servletApi(withDefaults())
+			.apply(new DefaultLoginPageConfigurer<>());
+		http.logout(withDefaults());
+		// @formatter:on
+		applyDefaultConfigurers(http);  // no defaultHttpConfigurers
+		return http;
+	}```
+
+    - 如果配置了SecurityFilterChain, 作为会使用该bean中的http配置，最终通过的build方法开始对http进行配置
+    ```
+    SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+		return http
+				.authorizeHttpRequests(auth -> auth.requestMatchers(AntPathRequestMatcher.antMatcher("/h2-console/**"))
+						.permitAll().requestMatchers("/design", "/orders", "/current").hasRole("USER")
+						.requestMatchers("/", "/**").permitAll())
+				.headers(headers -> headers.frameOptions().sameOrigin()).csrf().disable().formLogin()
+				.loginPage("/login").loginProcessingUrl("/authenticate").usernameParameter("username")
+				.passwordParameter("password").defaultSuccessUrl("/design").and().logout().logoutSuccessUrl("/login")
+				.and().build();
+	}
+
+    ```
+    - HttpSecurity 的configures和对应的Filter
+        - WebAsyncManagerIntegrationFilter
+        - ExceptionHandlingConfigurer: ExceptionTranslationFilter
+        - HeadersConfigurer： HeaderWriterFilter
+        - SessionManagementConfigurer： DisableEncodeUrlFilter
+        - SecurityContextConfigurer： SecurityContextHolderFilter
+        - RequestCacheConfigurer:  RequestCacheAwareFilter
+        - AnonymousConfigurer:  AnonymousAuthenticationFilter
+        - ServletApiConfigurer: SecurityContextHolderAwareRequestFilter
+        - DefaultLoginPageConfigurer: DefaultLoginPageGeneratingFilter, (if LogoutConfigurer exist), add DefaultLogoutPageGeneratingFilter
+        - LogoutConfigurer: LogoutFilter
+        - AuthorizeHttpRequestsConfigurer: AuthorizationFilter
+        - FromLoginConfigure: UsernamePasswordAuthenticationFilter
+    - 如果没有配置SecurityFilterChain， 则会默认使用SpringBootWebSecurityConfiguration中的SecurityFilterChain对http进行配置
+    ```
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnWebApplication(type = Type.SERVLET)
+    class SpringBootWebSecurityConfiguration {
+
+        /**
+        * The default configuration for web security. It relies on Spring Security's
+        * content-negotiation strategy to determine what sort of authentication to use. If
+        * the user specifies their own {@link SecurityFilterChain} bean, this will back-off
+        * completely and the users should specify all the bits that they want to configure as
+        * part of the custom security configuration.
+        */
+        @Configuration(proxyBeanMethods = false)
+        @ConditionalOnDefaultWebSecurity
+        static class SecurityFilterChainConfiguration {
+
+            @Bean
+            @Order(SecurityProperties.BASIC_AUTH_ORDER)
+            SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+                http.authorizeHttpRequests().anyRequest().authenticated();
+                http.formLogin();
+                http.httpBasic();
+                return http.build();
+            }
+
+        }
+
+        /**
+        * Adds the {@link EnableWebSecurity @EnableWebSecurity} annotation if Spring Security
+        * is on the classpath. This will make sure that the annotation is present with
+        * default security auto-configuration and also if the user adds custom security and
+        * forgets to add the annotation. If {@link EnableWebSecurity @EnableWebSecurity} has
+        * already been added or if a bean with name
+        * {@value BeanIds#SPRING_SECURITY_FILTER_CHAIN} has been configured by the user, this
+        * will back-off.
+        */
+        @Configuration(proxyBeanMethods = false)
+        @ConditionalOnMissingBean(name = BeanIds.SPRING_SECURITY_FILTER_CHAIN)
+        @ConditionalOnClass(EnableWebSecurity.class)
+        @EnableWebSecurity
+        static class WebSecurityEnablerConfiguration {
+
+        }
+
+    }
+    ```
+    HttpSecurity 的configures和对应的Filter
+        - WebAsyncManagerIntegrationFilter
+        - CsrfConfigurer:CsrfFilter
+        - ExceptionHandlingConfigurer: ExceptionTranslationFilter
+        - HeadersConfigurer： HeaderWriterFilter
+        - SessionManagementConfigurer： DisableEncodeUrlFilter
+        - SecurityContextConfigurer： SecurityContextHolderFilter
+        - RequestCacheConfigurer:  RequestCacheAwareFilter
+        - AnonymousConfigurer:  AnonymousAuthenticationFilter
+        - ServletApiConfigurer: SecurityContextHolderAwareRequestFilter
+        - DefaultLoginPageConfigurer: DefaultLoginPageGeneratingFilter, (if LogoutConfigurer exist), add DefaultLogoutPageGeneratingFilter
+        - LogoutConfigurer: LogoutFilter
+        - AuthorizeHttpRequestsConfigurer: AuthorizationFilter
+        - FromLoginConfigure: UsernamePasswordAuthenticationFilter
+        - HttpBasicConfigurer: BasicAuthenticationFilter
+
+- session创建流程: 第一次访问
+    - org.apache.catalina.util.SessionIdGeneratorBase.generateSessionId()
+    - org.apache.catalina.session.ManagerBase.createSession(String)
+    - org.apache.catalina.connector.Request.doGetSession(boolean)
+    - org.apache.catalina.connector.Request.getSession(boolean)
+    - org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository.loadToken(HttpServletRequest)
+    - org.springframework.security.web.csrf.CsrfFilter.doFilterInternal(HttpServletRequest, HttpServletResponse, FilterChain)
+
+
+- 登录流程： UsernamePasswordAuthenticationFilter
+    - HttpSecurity配置中的loginProcessingUrl会经过该filter，其他请求不会经过该filter，用户名密码对应的request paramter的名字由usernameParameter和passwordParameter进行配置
+    ```
+    @Bean
+        SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+            return http
+                    .authorizeHttpRequests(auth -> auth.requestMatchers(AntPathRequestMatcher.antMatcher("/h2-console/**"))
+                            .permitAll().requestMatchers("/design", "/orders", "/current").hasRole("USER")
+                            .requestMatchers("/", "/**").permitAll())
+                    .headers(headers -> headers.frameOptions().sameOrigin()).csrf().disable().formLogin()
+                    .loginPage("/login").loginProcessingUrl("/authenticate").usernameParameter("username")
+                    .passwordParameter("password").defaultSuccessUrl("/design").and().logout().logoutSuccessUrl("/login")
+                    .and().build();
+        }
+    ```
+    - UsernamePasswordAuthenticationFilter  extends AbstractAuthenticationProcessingFilter 
+    - 从request中获取用户名密码进行验证，验证成功
+    - CompositeSessionAuthenticationStrategy.onAuthentication(authenticationResult, request, response)
+        - ChangeSessionIdAuthenticationStrategy.onAuthentication
+            - sesssion不存在，则无需fix
+            - session存在且sessionId有效，则需要创建新的sessionId来替换老的sessionId，并发布 SessionFixationProtectionEvent, ```
+            ```
+            AbstractSessionFixationProtectionStrategy.onSessionChange(String, HttpSession, Authentication)
+            AbstractAuthenticationProcessingFilter.successfulAuthentication
+            ```
+        - build SecurityContext， 将验证结果设置到SecurityContext
+        - 将SecurityContext设置到SecurityContextHolder中, ThreadLocalSecurityContextHolderStrategy.setContext
+        - 将SecurityContext进行保存，默认是保存到session中attribute中，attribute key为SPRING_SECURITY_CONTEXT, DelegatingSecurityContextRepository.saveContext->HttpSessionSecurityContextRepository.saveContext
+
+- SecurityContext设置流程：SecurityContextHolderFilter
+    - 加载 SecurityContext： DelegatingSecurityContextRepository.loadDeferredContext
+    - HttpSessionSecurityContextRepository.loadDeferredContext, readSecurityContextFromSession
+    - RequestAttributeSecurityContextRepository.loadDeferredContext, 从request的attribute中获取， 默认attribute的名字为org.springframework.security.web.context.RequestAttributeSecurityContextRepository.SPRING_SECURITY_CONTEXT
+    - 设置加载到的deferredSecurityContext到SecurityContextHolder：ThreadLocalSecurityContextHolderStrategy.setDeferredContext
+
+- 验证流程： AuthorizationFilter
+    - 从SecurityContext中获取Authentication验证结果，ThreadLocalSecurityContextHolderStrategy.getContext().getAuthentication()
+    - 检测Authentication是否为granted，若为granted则验证通过，否则验证失败
+
+## OAuth2
+- application.yml 配置oauth2 client的相关信息
+```
+spring:
+  datasource:
+    generate-unique-name: false
+    name: tacocloud
+  security:
+    oauth2:
+      client:
+        registration:
+          github:
+            client-id: ${client_id}   #replace this with real value
+            client-secret: ${client_secret}   #replace this with real value
+
+```
+- config，添加oauth2 client的相关配置
+```
+
+    private GrantedAuthoritiesMapper userAuthoritiesMapper() {
+        return (authorities) -> {
+            Set<GrantedAuthority> mappedAuthorities = new HashSet<>();
+            authorities.forEach(authority -> {
+                mappedAuthorities.add(new SimpleGrantedAuthority("ROLE_USER"));
+            });
+            return mappedAuthorities;
+        };
+    }
+
+    @Bean
+    SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        return http
+                .authorizeHttpRequests(auth -> auth.requestMatchers(AntPathRequestMatcher.antMatcher("/h2-console/**")).permitAll()
+                        .requestMatchers("/design", "/orders", "/current").hasRole("USER")
+                        .requestMatchers("/", "/**").permitAll())
+                .headers(headers -> headers.frameOptions().sameOrigin()).csrf().disable()
+                .formLogin()
+                .loginPage("/login")
+                .loginProcessingUrl("/authenticate")
+                .usernameParameter("username")
+                .passwordParameter("password")
+                .defaultSuccessUrl("/design")
+                .and()
+                .logout()
+                .logoutSuccessUrl("/login")
+                .and()
+                .oauth2Login()
+                .loginPage("/login")
+                .userInfoEndpoint(userInfo -> userInfo.userAuthoritiesMapper(this.userAuthoritiesMapper())).and()
+                .build();
+    }
+```
+- login page:添加登录链接
+```
+ <div>
+    Login With GitHub: <a href="/oauth2/authorization/github">click here</a>
+ </div>
+```

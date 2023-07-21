@@ -1,0 +1,11 @@
+spring:
+  datasource:
+    generate-unique-name: false
+    name: tacocloud
+  security:
+    oauth2:
+      client:
+        registration:
+          github:
+            client-id: ${client_id}   #replace this with real value
+            client-secret: ${client_secret}   #replace this with real value
