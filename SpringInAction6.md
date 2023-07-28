@@ -432,12 +432,6 @@ public UserDetailsService userDetailsService(UserRepository userRepo) {
     }
     ```
 
-
-## Preventing cross-site request forgery
-
-- spring的CsrfFilter会从request的参数中解析出csrf token， 与request的session中的csrf token进行比对
-
-
 ## HttpSecurity：
 - 配置filter
     - cors()： CorsConfigurer, CorsFilter
@@ -692,3 +686,1163 @@ spring:
     Login With GitHub: <a href="/oauth2/authorization/github">click here</a>
  </div>
 ```
+
+## Preventing cross-site request forgery
+- Spring Security 内置了 CSRF 保护。它是默认启用的，不需要显式配置它
+- 只需要确保提交的所有表单都包含名为_csrf 包含 CSRF 令牌
+- Spring Security 可以通过将 CSRF 令牌放置在名为 _csrf 的请求属性中来轻松实现这一点。因此，可以将 CSRF 令牌呈现在隐藏的input中，如果使用 Spring MVC 的 JSP 标签库或带有 Spring Security 方言的 Thymeleaf，甚至不需要显式地包含隐藏字段。隐藏字段将会自动添加到页面上
+```
+<input type="hidden" name="_csrf" th:value="${_csrf.token}"/>
+```
+- 在 Thymeleaf 中，只需要确保 <form> 的属性之一元素的前缀是 Thymeleaf 属性。例如，只需要在form中包含 th:action 属性，则_csrf的隐藏input就会自动渲染到页面上
+```
+<form method="POST" th:action="@{/login}" id="loginForm">
+```
+### 什么是CSRF攻击
+- 假设您的银行网站提供了一个表单，允许将资金从当前登录的用户转移到另一个银行账户
+```
+<form method="post"
+	action="/transfer">
+<input type="text"
+	name="amount"/>
+<input type="text"
+	name="routingNumber"/>
+<input type="text"
+	name="account"/>
+<input type="submit"
+	value="Transfer"/>
+</form>
+```
+- 表单提交时，发送的请求如下
+```
+POST /transfer HTTP/1.1
+Host: bank.example.com
+Cookie: JSESSIONID=randomid
+Content-Type: application/x-www-form-urlencoded
+
+amount=100.00&routingNumber=1234&account=9876
+```
+- 现在假设你在你的银行网站上进行了身份验证，然后在没有注销的情况下访问了一个恶意网站。恶意网站包含一个具有以下形式的 HTML 页面：
+```
+<form method="post"
+	action="https://bank.example.com/transfer">
+<input type="hidden"
+	name="amount"
+	value="100.00"/>
+<input type="hidden"
+	name="routingNumber"
+	value="evilsRoutingNumber"/>
+<input type="hidden"
+	name="account"
+	value="evilsAccountNumber"/>
+<input type="submit"
+	value="Win Money!"/>
+</form>
+```
+- 当你点击提交按钮的时候，浏览器就会给银行转账的url发送请求，发送请求时会带上银行网站的Cookie，有了这个Cookie，就可以通过银行网站的身份验证，进而成功向恶意用户的账户进行转账。
+
+### CSRF攻击发生的前提
+- 用户在浏览器上进行了身份验证（比如登录操作），且该身份验证产生的Cookie仍在有效期内
+- 银行网站的Cookie没有设置SameSite Attribute，导致在任意网页向银行网站发送请求都可以携带银行网站的Cookie
+- 银行网站没有验证发送请求的网站是否为银行自己的网站
+
+### 如何避免CSRF攻击
+#### CSRF Token
+- 防止 CSRF 攻击的主要且最全面的方法是使用 Synchronizer Token Pattern。
+- 这个解决方案是为了确保每个 HTTP 请求除了我们的会话 cookie 之外，还需要一个称为 CSRF Token的安全随机生成值出现在 HTTP 请求中
+- 提交 HTTP 请求时，服务器必须查找预期的 CSRF Token并将其与 HTTP 请求中的实际 CSRF Token进行比较。如果值不匹配，则应拒绝 HTTP 请求
+- 这项工作的关键是实际的 CSRF Token在浏览器发送请求时不会自动包含在HTTP 请求中。例如，在 HTTP 参数或 HTTP Header中传递实际的 CSRF Token可以防止 CSRF 攻击，但如果将CSRF Token保存在Cookie中，则 CSRF Token将不起作用，因为即便在恶意网站给银行网站发送请求，浏览器也会自动将银行网站的Cookie 包含在 HTTP 请求中。
+- 引入CSRF Token之后，银行网站的页面将添加一个_csrf的隐藏input来保存回银行网站服务器返回的CSRF Token， 并在发送请求时自动将该_csrf参数包含在内。恶意站点无法读取 CSRF Token，因为同源策略可确保恶意站点无法读取银行网站服务器返回的响应，自然也就无法获取到响应中包含的CSRF Token。
+```
+<form method="post"
+	action="/transfer">
+<input type="hidden"
+	name="_csrf"
+	value="4bfd1575-3ad1-4d21-96c7-4ef2d9f86721"/>
+<input type="text"
+	name="amount"/>
+<input type="text"
+	name="routingNumber"/>
+<input type="hidden"
+	name="account"/>
+<input type="submit"
+	value="Transfer"/>
+</form>
+```
+- 表单提交时，发送的请求如下, 请求的request parameter中将包含一个_csrf的参数，银行网站可以验证请求中 CSRF Token与服务器保存的 CSRF Token是否一致。恶意网站将无法为 _csrf 参数提供正确的值，当服务器将请求中的 CSRF Token与服务器保存的 CSRF Token进行比较时，验证将失败。
+```
+POST /transfer HTTP/1.1
+Host: bank.example.com
+Cookie: JSESSIONID=randomid
+Content-Type: application/x-www-form-urlencoded
+
+amount=100.00&routingNumber=1234&account=9876&_csrf=4bfd1575-3ad1-4d21-96c7-4ef2d9f86721
+```
+
+#### Cookie的SameSite Attribute
+- 一种防止 CSRF 攻击的新兴方法是在 cookie 上指定 SameSite 属性
+- 服务器可以在设置 cookie 时指定 SameSite 属性，以指示当请求来自外部站点时不应该携带cookie
+- Spring Security 不直接控制会话 cookie 的创建，因此不提供对 SameSite 属性的支持。 Spring Session 在基于 servlet 的应用程序中提供对 SameSite 属性的支持。 Spring Framework 的 CookieWebSessionIdResolver 为基于 WebFlux 的应用程序中的 SameSite 属性提供开箱即用的支持。
+- SameSite属性的可选值
+	- Strict：来自同一站点的任何请求都包含 cookie。否则，cookie 不包含在 HTTP 请求中。
+	- Lax：当来自同一站点或请求来自父域时发送 cookie，并且该方法是幂等的。否则，cookie 不包含在 HTTP 请求中
+- 通过在我们的会话 cookie 上设置 SameSite 属性，在银行网站上给银行网站的server发送请求时，将会携带银行网站的JSESSIONID cookie。但是，在恶意网站上给银行网站的server发送请求时，将不会携带银行网站的 JSESSIONID cookie，请求中不包含session cookie信息，因此不会通过验证，由此避免了 CSRF 攻击。
+- 但是使用 SameSite 属性来防止 CSRF 攻击时，有一些注意事项。
+	- 将 SameSite 属性设置为 Strict 可提供更强大的防御，但在某些场景下会使用户感到困惑。假设一个用户登录了 social.example.com 的社交媒体网站。用户在 email.example.org 收到一封电子邮件，其中包含指向社交媒体网站的链接。如果用户单击该链接，他们理所当然地希望通过社交媒体网站的身份验证。但是，如果  social.example.com 的SameSite 属性为 Strict，则由于请求来自 email.example.org网站，则访问social.example.com时 不会携带social.example.com的cookie，因此用户无法通过身份验证，需要再次进行登录操作。
+
+### 何时需要对网站进行CSRF攻击的保护
+- 对可以通过浏览器处理的任何请求使用 CSRF 保护
+- 对于仅供非浏览器客户端使用的服务，可以禁用 CSRF 保护，比如只供server端调用的接口
+
+ 除了支持request级别的权限验证， Spring Security还支持方法级别的权限验证
+- 可以通过@EnableMethodSecurity注解来启用方法级别的验证
+
+## Method Security
+### Method Security如何工作
+- Method Security通过利用Spring AOP来实现
+- 注解：@PreAuthorize, @PostAuthorize, @PreFilter, @PostFilter，@Secured， JSR-250 annotations
+- Method Security 的注解也可以应用在 class和 interface 上
+- 工作流程 
+	- Spring APO首先调用readCustomer的代理方法，在代理的其他顾问中，它调用与 @PreAuthorize 切入点匹配的 AuthorizationManagerBeforeMethodInterceptor
+	- AuthorizationManagerBeforeMethodInterceptor 调用 PreAuthorizeAuthorizationManager#check
+	- PreAuthorizeAuthorizationManager利用MethodSecurityExpressionHandler 来解析注解中的表达式进，利用MethodSecurityExpressionRoot 创建一个EvaluationContext ，MethodSecurityExpressionRoot 中包含了Supplier<Authentication> 和 MethodInvocation
+	- interceptor利用这个EvaluationContext来检测表达式，它会从Supplier<Authentication>中读取Authentication，然后检测 authorities中是否包含permission:read
+	- 如果验证通过，Spring APO会调用readCustomer方法
+	- 如果验证失败，发布AuthorizationDeniedEvent，抛出AccessDeniedException，ExceptionTranslationFilter会处理AccessDeniedException，返回403
+	- 当方法调用返回后，Spring APO会调用AuthorizationManagerAfterMethodInterceptor
+	- AuthorizationManagerAfterMethodInterceptor调用PostAuthorizeAuthorizationManager#check进行验证
+	- 如果验证通过，方法正常继续执行
+	- 如果验证失败，发布AuthorizationDeniedEvent，抛出AccessDeniedException，ExceptionTranslationFilter会处理AccessDeniedException，返回403
+
+- 如果一个方法上有多个注解，则多个注解的验证都通过后方法才会正常调用
+- 同一个方法上不允许声明多个相同的注解
+- 每一个注解都有自己对应的Method Interceptor
+	- @PreAuthorize：AuthenticationManagerBeforeMethodInterceptor#preAuthorize, PreAuthorizeAuthorizationManager
+	- @PostAuthorize：AuthenticationManagerAfterMethodInterceptor#postAuthorize, PostAuthorizeAuthorizationManager
+	- @PreFilter, PreFilterAuthorizationMethodInterceptor
+		- 在执行方法之前，先对方法参数进行过滤，支持array，collection，map，stream
+	- @PostFilter, PostFilterAuthorizationMethodInterceptor
+		- - 在执行方法之前，对方法返回值进行过滤，支持array，collection，map，stream
+	- @Secured, AuthenticationManagerBeforeMethodInterceptor#secured, SecuredAuthorizationManager
+		- @Secured 是用于授权调用的遗留选项。 @PreAuthorize 可以取代它，推荐使用PreAuthorize
+		- @EnableMethodSecurity(securedEnabled = true)
+	- For JSR-250 annotations, AuthenticationManagerBeforeMethodInterceptor#jsr250, Jsr250AuthorizationManager
+		- 如果想使用 JSR-250 注释，Spring Security 也支持。 @PreAuthorize 具有更强的表达能力，因此更推荐使用PreAuthorize
+		- @EnableMethodSecurity(jsr250Enabled = true)
+		- 对声明了@RolesAllowed、@PermitAll 和 @DenyAll 注解的方法、类和接口进行授权
+- 支持元注解
+```
+@Target({ ElementType.METHOD, ElementType.TYPE })
+@Retention(RetentionPolicy.RUNTIME)
+@PreAuthorize("hasRole('ADMIN')")
+public @interface IsAdmin {}
+
+Component
+public class BankService {
+	@IsAdmin
+	public Account readAccount(Long id) {
+        // ... is only returned if the `Account` belongs to the logged in user
+	}
+}
+```
+- 只启用特定注解
+```
+@Configuration
+@EnableMethodSecurity(prePostEnabled = false)
+class MethodSecurityConfig {
+	@Bean
+	@Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+	Advisor postAuthorize() {
+		return AuthorizationManagerBeforeMethodInterceptor.postAuthorize();
+	}
+}
+```
+- 在SpEL中使用自定义bean
+```
+@Component("authz")
+public class AuthorizationLogic {
+    public boolean decide(MethodSecurityExpressionOperations operations) {
+        // ... authorization logic
+    }
+}
+
+@Controller
+public class MyController {
+    @PreAuthorize("@authz.decide(#root)")
+    @GetMapping("/endpoint")
+    public String endpoint() {
+        // ...
+    }
+}
+```
+- 使用自定义的Authorization Manager
+```
+@Component
+public class MyAuthorizationManager implements AuthorizationManager<MethodInvocation> {
+    public AuthorizationDecision check(Supplier<Authentication> authentication, MethodInvocation invocation) {
+        // ... authorization logic
+    }
+}
+@Configuration
+@EnableMethodSecurity(prePostEnabled = false)
+class MethodSecurityConfig {
+    @Bean
+	@Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+	Advisor postAuthorize(MyAuthorizationManager manager) {
+		return AuthorizationManagerBeforeMethodInterceptor.preAuthorize(manager);
+	}
+
+	@Bean
+	@Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+	Advisor postAuthorize(MyAuthorizationManager manager) {
+		return AuthorizationManagerAfterMethodInterceptor.postAuthorize(manager);
+	}
+}
+```
+- 使用自定义的表达式处理器
+	- 使用静态方法公开 MethodSecurityExpressionHandler 以确保 Spring 在初始化 Spring Security 的方法安全 @Configuration 类之前发布它
+	```
+	@Bean
+	static MethodSecurityExpressionHandler methodSecurityExpressionHandler(RoleHierarchy roleHierarchy) {
+		DefaultMethodSecurityExpressionHandler handler = new DefaultMethodSecurityExpressionHandler();
+		handler.setRoleHierarchy(roleHierarchy);
+		return handler;
+	}
+	```
+### Authorizing with AspectJ
+- 使用自定义的切点来匹配方法
+	- 基于 Spring AOP 构建，可以声明与注释无关的模式，类似于请求级授权。这具有集中方法级授权规则的潜在优势。
+	- 例如，您可以使用发布自己的 Advisor 或使用 <protect-pointcut> 将 AOP 表达式与服务层的授权规则相匹配，如下所示：
+	```
+	@Bean
+	@Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+	static Advisor protectServicePointcut() {
+		JdkRegexpMethodPointcut pattern = new JdkRegexpMethodPointcut();
+		pattern.setPattern("execution(* com.mycompany.*Service.*(..))");
+		return new AuthorizationManagerBeforeMethodInterceptor(pattern, hasRole("USER"));
+	}
+
+	<sec:method-security>
+		<protect-pointcut expression="execution(* com.mycompany.*Service.*(..))" access="hasRole('USER')"/>
+	</sec:method-security>
+	```
+- 与 AspectJ 字节编织集成
+	- 有时可以通过使用 AspectJ 将 Spring Security advice编织到 bean 的字节代码中来增强性能。
+	- 设置 AspectJ 后，可以非常简单地在 @EnableMethodSecurity 注释或 <method-security> 元素中声明您正在使用 AspectJ：
+	```
+	@EnableMethodSecurity(mode=AdviceMode.ASPECTJ)
+	```
+### 顺序配置
+- 如前所述，每个注释都有一个 Spring AOP 方法拦截器，并且每个注释在 Spring AOP advisor 链中都有一个位置
+- @PreFilter方法拦截器的阶数是100，@PreAuthorize的阶数是200，以此类推。
+- 需要注意的是，还有其他基于 AOP 的注释，例如 @EnableTransactionManagement，其顺序为 Integer.MAX_VALUE，即它们默认位于顾问链的末端
+- 有时，需要在 Spring Security 之前执行其他advice。例如，如果有一个用 @Transactional 和 @PostAuthorize 注释的方法，可能希望在 @PostAuthorize 运行时事务仍处于打开状态，以便 AccessDeniedException 触发回滚。
+- 要让 @EnableTransactionManagement 在方法授权建议运行之前打开事务，可以像这样设置 @EnableTransactionManagement 的顺序：
+```
+@EnableTransactionManagement(order = 0)
+```
+### Expressing Authorization with SpEL
+#### 使用授权表达式字段和方法
+- permitAll - 允许所有请求，无需进行验证，不会从session中读取Authentication
+- denyAll - 拒绝所有请求，无需进行验证，不会从session中读取Authentication
+- hasAuthority - 拥有某个权限时，才允许调用，权限判断方法就是读取Authentication的GrantedAuthority，判断GrantedAuthority是否与给定值相等
+- hasRole - hasAuthority的一种缩写，会以 ROLE_ 作为prefix，用户只需要指定role，匹配时会自动加上ROLE_${role}，然后再与GrantedAuthority的值进行比较
+- hasAnyAuthority - 拥有某几个权限中的任意一个，用于给出几个值，GrantedAuthority中只要有一个与给定值相等，则视为有权限
+- hasAnyRole - hasAnyAuthority的一种缩写，会以 ROLE_ 作为prefix，用户只需要指定role，匹配时会自动加上ROLE_${role}，然后再与GrantedAuthority的值进行比较
+- hasPermission - 调用用户自定义的PermissionEvaluator实例，来进行对象级别的权限验证
+
+#### 使用方法参数
+- Spring Security 提供了一种发现方法参数的机制，因此也可以在 SpEL 表达式中访问它们
+```
+@PreAuthorize("hasPermission(#c, 'write')")
+public void updateContact(@P("c") Contact contact);
+```
+-name参数与Authentication#getName相等
+```
+@PreAuthorize("#n == authentication.name")
+Contact findContactByName(@Param("n") String name);
+``` 
+
+# 自动配置
+
+## 自动配置
+### Spring环境变量
+- JVM 系统属性
+- 操作系统环境变量
+- 命令行参数
+- 应用程序属性配置文件
+![spring-environment](spring-environment.png)
+### 配置DataSource
+- MySQL
+    - Spring Boot 在自动配置 DataSource bean 时使用此连接数据。
+    - 如果HikariCP 连接池的路径上可用，则将使用HikariCP 连接池 对 DataSource bean 进行池化。如果没有，Spring Boot 会查找并使用以下其他选项之一类路径上的连接池实现：
+        - Tomcat JDBC 连接池
+        - Apache Commons DBCP2
+- 配置数据库连接
+```
+spring:
+    datasource:
+        url: jdbc:mysql:/ /localhost/tacocloud
+        username: tacouser
+        password: tacopassword
+        driver-class-name: com.mysql.jdbc.Driver  # optional
+```
+- 配置初始化执行的脚本
+```
+spring:
+    datasource:
+        schema:
+            - order-schema.sql
+            - ingredient-schema.sql
+            - taco-schema.sql
+            - user-schema.sql
+        data:
+            - ingredients.sql
+```
+- 使用JNDI配置初始化数据
+```
+spring:
+    datasource:
+        jndi-name: java:/comp/env/jdbc/tacoCloudDS
+```
+
+### 配置内置服务器
+- server.ssl.key-store 属性应设置为路径密钥库文件已创建。这里显示了一个 file:// URL 以从文件系统加载，但如果将其打包在应用程序 JAR 文件中，则将使用class-path：URL 来引用它。
+```
+server:
+    port: 8443
+    ssl:
+        key-store: file:/ / /path/to/mykeys.jks
+        key-store-password: letmein
+        key-password: letmein
+```
+
+### 配置log
+- 默认情况下，Spring Boot 通过 Logback (http://logback.qos.ch) 配置日志记录在 INFO 级别写入控制台
+- 要完全控制日志记录配置，您可以在以下位置创建 logback.xml 文件：类路径的根目录（在 src/main/resources 中）
+```
+<configuration>
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>
+            %d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n
+            </pattern>
+        </encoder>
+    </appender>
+    <logger name="root" level="INFO"/>
+    <root level="INFO">
+        <appender-ref ref="STDOUT" />
+    </root>
+</configuration>
+```
+- 也可以不体统logback配置文件，直接在application property配置文件进行配置
+```
+logging:
+    file:
+        path: /var/logs/
+        file: TacoCloud.log
+    level:
+        root: WARN
+        org:
+            springframework:
+            security: DEBUG
+```
+
+## 配置属性
+- 为了支持配置属性的属性注入，Spring Boot提供了@ConfigurationProperties 注释。
+- 当放置在任何 Spring bean 上时，它指定该 bean 的属性可以从 Spring 中的属性注入环境
+
+### 定义配置属性类
+- @ConfigurationProperties 实际上经常被放置位于应用程序中的唯一目的是保存配置数据的 bean 上。
+- 这可以使特定于配置的详细信息远离控制器和其他应用程序类。
+- 它还可以轻松地在多个应用程序之间共享通用配置属性可能会使用该信息的bean。
+```
+package tacos.web;
+import javax.validation.constraints.Max;
+import javax.validation.constraints.Min;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.stereotype.Component;
+import org.springframework.validation.annotation.Validated;
+import lombok.Data;
+
+@Component
+@ConfigurationProperties(prefix="taco.orders")
+@Data
+@Validated
+public class OrderProps {
+ 
+    @Min(value=5, message="must be between 5 and 25")
+    @Max(value=25, message="must be between 5 and 25")
+    private int pageSize = 20;
+}
+```
+
+```
+@Controller
+@RequestMapping("/orders")
+@SessionAttributes("order")
+public class OrderController {
+    @Autowired
+    private OrderProps props;
+
+    public OrderController(OrderRepository orderRepo,
+        OrderProps props) {
+        this.orderRepo = orderRepo;
+        this.props = props;
+    }
+    ...
+
+    @GetMapping
+    public String ordersForUser(
+        @AuthenticationPrincipal User user, Model model) {
+        Pageable pageable = PageRequest.of(0, props.getPageSize());
+        model.addAttribute("orders",
+        orderRepo.findByUserOrderByPlacedAtDesc(user, pageable));
+        return "orderList";
+    }
+}
+```
+
+### 声明属性配置元数据
+- 为了帮助那些可能使用您定义的配置属性的人，围绕这些创建一些元数据通常是一个好主意。至少它摆脱了 IDE 中那些烦人的黄色警告。
+- 要为自定义配置属性创建元数据，需要创建META-INF 下的文件（例如，在 src/main/resources/META-INF 下的项目中），命名为additional-spring-configuration-metadata.json
+```
+{"properties": [{
+ "name": "taco.orders.page-size",
+ "type": "java.lang.Integer",
+ "description": "Sets the maximum number of orders to display in a list."
+}]}
+```
+- 配置属性对于调整自动配置的组件以及注入到bean中的详细信息非常有用
+
+## Profile
+- 当应用程序部署到不同的运行环境时，通常一些配置细节会有所不同
+- 一种方法是使用环境变量指定配置属性而不是在 application.properties 和application.yml中定义它们
+- 相反，我更喜欢利用 Spring 配置文件。
+- 配置文件是一种条件配置，其中不同的 bean、配置类和配置根据运行时处于活动状态的配置文件来应用或忽略属性。
+### 定义基于profile的属性
+- 定义特定于配置文件的属性的一种方法是创建另一个仅包含生产属性的 YAML 或属性关系文件。文件的名称应该是遵循以下约定：application-{profile name}.yml 或 application-{profile name}.properties
+- 另一种指定配置文件特定属性的方法仅适用于 YAML 配置。它涉及将特定于配置文件的属性与非配置文件属性一起放置在application.yml，由三个连字符和 spring.profiles 属性分隔为配置文件命名。将生产属性应用到 application.yml 时, 整个 application.yml 看起来像这样
+```
+logging:
+    level:
+        tacos: DEBUG
+---
+spring:
+    profiles: prod
+    datasource:
+        url: jdbc:mysql:/ /localhost/tacocloud
+        username: tacouser
+        password: tacopassword
+logging:
+    level:
+    tacos: WARN
+```
+
+### 激活profile
+- 配置 spring.profiles.active 属性
+- 如果在application.yml 中进行配置，那么该配置文件将成为默认配置文件，并且没有实现使用配置文件来分离生产和开发的目的。
+- 因此，建议通过环境变量来设置active profile
+
+### 创建基于profile的bean
+- 有时，为不同的配置文件提供一组独特的 Bean 很有用
+- 通常，任何在 Java 配置类中声明的 bean 都会被创建，无论哪个配置文件是激活的。
+- 如果只需要在某个配置文件激活时才需要创建一些 bean，可以使用@Profile注解来指定哪个profile激活时才创建bean
+
+
+# 创建rest服务
+
+## Restful Controller
+- @RestController
+- @Controller on class + @ResponseBody on each method
+- @RequestMapping的 produces属性限制了 API 只能生成 JSON 结果，并且它允许另一个控制器来处理具有相同路径的请求，只要这些请求不需要 JSON 输出
+- @CrossOrigin 允许客户端从某个指定的domain访问API
+
+## Enabling data-backed service
+- Spring Data 可以帮助定义适合应用 API
+- Spring Data REST 是 Spring Data 系列的另一个成员，它自动为 Spring Data 创建的存储库创建 REST API
+- 可以通过设置 spring.data.rest.base-path 属性来调整API基本路径
+- 但有时，例如“taco”，它会因某个单词而出错，并且复数版本不太正确。事实证明，Spring Data REST 将“taco”复数为“tacoes”，
+    - 可以通过是哟红@RestResource(rel="tacos", path="tacos")来解决
+- curl localhost:8080/api 可以用来查看所有的API
+
+## 发送Rest请求
+- Spring 应用程序可以通过以下方式使用 REST API：
+    - RestTemplate——由Spring核心框架
+    - Traverson——Spring 的 RestTemplate 的包装，由 Spring HATEOAS 提供，启用超链接感知的同步 REST 客户端。
+    - WebClient——反应式异步 REST 客户端
+- RestTemplate 定义了 12 个独特的操作，每个操作都是重载的，提供了总共共 41 种方法
+    - delete(…) 对指定 URL 的资源执行 HTTP DELETE 请求
+    - Exchange(…) 针对 URL 执行指定的 HTTP 方法，返回包含从响应正文映射的对象的Response Entity
+    - execute(…) 对 URL 执行指定的 HTTP 方法，返回一个从响应正文映射的对象
+    - getForEntity(…) 发送 HTTP GET 请求，返回包含从响应主体映射的对象的 ResponseEntity
+    - getForObject(…) 发送 HTTP GET 请求，返回从响应主体映射的对象
+    - headForHeaders(…) 发送 HTTP HEAD 请求，返回指定的 HTTP 标头资源网址
+    - optionsForAllow(…) 发送 HTTP OPTIONS 请求，返回允许标头指定网址
+    - patchForObject(…) 发送 HTTP PATCH 请求， 返回从响应主体映射的对象
+    - postForEntity(…) 将数据 POST 到 URL，返回包含从响应正文映射的对象的Response Entity
+    - postForLocation(…) 将数据 POST 到 URL，返回新创建资源的 URL，，postForLocation() 的工作方式与 postForObject() 非常相似，不同之处在于它返回新创建资源的 URI，而不是资源对象本身
+    - postForObject(…) 将数据 POST 到 URL，返回从响应正文映射的对象
+    - put(…) 将资源数据放置到指定的 URL
+- ResponseEntity 给出访问其他响应详细信息，例如响应标头。
+
+# Securing REST
+## OAuth2
+- 客户端向授权服务器请求访问令牌
+- 该令牌允许他们客户端代表用户与 API 进行交互
+- 在任何时候，令牌都可能过期或被撤销，而无需要求更改用户的密码。在这种情况下，客户端需要请求新的访问令牌才能继续代表用户执行操作。
+![oauth2-flow](oauth2-flow.png)
+- OAuth 2 是一个非常丰富的安全规范，提供了很多使用它的方法
+    - 授权码授权-重定向用户的浏览器向授权服务器发送请求以获取用户同意，用户同意之后通过callbackUrl将授权码提供给客户端，客户端利用授权码向授权服务器请求accessToken
+    - 隐式授权—与授权码授权一样，隐式授权会重定向用户的浏览器向授权服务器发送请求以获取用户同意，用户同意之后通过callbackUrl将令牌在请求中直接返回个客户端。虽然最初设计是为了在浏览器中运行的 JavaScript 客户端，现在通常不推荐此流程，推荐使用授权码
+    - 用户凭据（或密码）授予 - 在此流程中，不会发生重定向，并且甚至可能不涉及网络浏览器。相反，客户端应用程序获取用户的用户名密码，直接使用用户名密码来获取访问令牌。这个流程似乎适合不基于浏览器但现代应用程序的客户端。通常倾向于要求用户在浏览器中访问网站并执行授权代码授予，以避免处理用户的凭据。
+    - 客户端凭据授予 - 此流程类似于用户凭据授予，不同之处在于客户端不是用用户的凭据来交换访问令牌，而是将自己的凭证交换为访问令牌。然而，授予的令牌仅限于执行非以用户为中心的操作，并且不能用于代表用户行事。因为不包含任何用户信息
+- 组件
+    - 授权服务器——授权服务器的工作视为客户端生成访问令牌，这个过程需要用户的参与，如果用户授予权限，那么授权服务器向客户端应用程序提供访问令牌，访问令牌可用于访问 API 
+    - 资源服务器——资源服务器只是受OAuth3保护的 API 的另一个名称。虽然资源服务器是 API 本身的一部分，但为了讨论的方便，两者通常被视为两个不同的概念。资源服务器限制对其资源的访问，除非请求提供具有必要权限范围的有效访问令牌。
+    -客户端应用程序 - 客户端应用程序是想要使用 API 但需要权限才能执行此操作的应用程序。我们将构建一个简单的管理Taco Cloud 的应用程序能够添加新成分。
+    - 用户——使用客户端应用程序并授予权限的人，应用程序代表用户访问资源服务器的 API 的权限
+## 创建授权服务器
+- application.yml
+```
+server:
+ port: 9000
+```
+- pom
+```
+<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-authorization-server</artifactId>
+		</dependency>
+		<dependency>
+		 	<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jdbc</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-devtools</artifactId>
+			<scope>runtime</scope>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+		
+		<dependency>
+			<groupId>org.projectlombok</groupId>
+			<artifactId>lombok</artifactId>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+				<configuration>
+					<excludes>
+						<exclude>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+						</exclude>
+					</excludes>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+```
+- User
+```
+package com.jessica.taco.authorization.server.entity;
+
+import java.util.Arrays;
+import java.util.Collection;
+
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import lombok.AccessLevel;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.RequiredArgsConstructor;
+
+@Entity(name = "Taco_User")
+@Data
+@NoArgsConstructor(access = AccessLevel.PRIVATE, force = true)
+@RequiredArgsConstructor
+public class User implements UserDetails {
+
+    private static final long serialVersionUID = 1L;
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.AUTO)
+    private Long id;
+
+    private final String username;
+    private final String password;
+    private final String role;
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return Arrays.asList(new SimpleGrantedAuthority("ROLE_USER"));
+    }
+
+    @Override
+    public boolean isAccountNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return true;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return true;
+    }
+}
+
+```
+- UserRepository
+```
+package com.jessica.taco.authorization.server.dao;
+
+import org.springframework.data.repository.CrudRepository;
+
+import com.jessica.taco.authorization.server.entity.User;
+
+public interface UserRepository extends CrudRepository<User, Long> {
+    User findByUsername(String username);
+
+}
+
+```
+- SecurityConfig
+```
+package com.jessica.taco.authorization.server.config;
+
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
+import java.security.interfaces.RSAPrivateKey;
+import java.security.interfaces.RSAPublicKey;
+import java.util.UUID;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.core.AuthorizationGrantType;
+import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
+import org.springframework.security.oauth2.core.oidc.OidcScopes;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.server.authorization.client.InMemoryRegisteredClientRepository;
+import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
+import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
+import org.springframework.security.oauth2.server.authorization.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration;
+import org.springframework.security.oauth2.server.authorization.settings.ClientSettings;
+import org.springframework.security.web.SecurityFilterChain;
+
+import com.jessica.taco.authorization.server.dao.UserRepository;
+import com.nimbusds.jose.jwk.JWKSet;
+import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jose.jwk.source.JWKSource;
+import com.nimbusds.jose.proc.SecurityContext;
+
+@EnableWebSecurity
+@Configuration
+public class SecurityConfig {
+    @Bean
+    SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http)
+            throws Exception {
+        return http
+                .authorizeHttpRequests(authorizeRequests -> authorizeRequests.anyRequest().authenticated())
+                .formLogin(Customizer.withDefaults())
+                .build();
+    }
+
+    @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http)
+            throws Exception {
+        OAuth2AuthorizationServerConfiguration.applyDefaultSecurity(http);
+        return http
+                .formLogin(Customizer.withDefaults())
+                .build();
+    }
+
+    @Bean
+    UserDetailsService userDetailsService(UserRepository userRepo) {
+        return username -> userRepo.findByUsername(username);
+    }
+
+    @Bean
+    PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    RegisteredClientRepository registeredClientRepository(
+            PasswordEncoder passwordEncoder) {
+        RegisteredClient registeredClient = RegisteredClient.withId(UUID.randomUUID().toString())
+                .clientId("taco-admin-client")
+                .clientSecret(passwordEncoder.encode("secret"))
+                .clientAuthenticationMethod(
+                        ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+                .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+                .authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN)
+                .redirectUri(
+                        "http://127.0.0.1:9090/login/oauth2/code/taco-admin-client")
+                .scope("writeIngredients")
+                .scope("deleteIngredients")
+                .scope(OidcScopes.OPENID)
+                .clientSettings(ClientSettings.builder().requireAuthorizationConsent(true).build())
+                .build();
+        return new InMemoryRegisteredClientRepository(registeredClient);
+    }
+
+    @Bean
+    JWKSource<SecurityContext> jwkSource()
+            throws NoSuchAlgorithmException {
+        RSAKey rsaKey = generateRsa();
+        JWKSet jwkSet = new JWKSet(rsaKey);
+        return (jwkSelector, securityContext) -> jwkSelector.select(jwkSet);
+    }
+
+    private static RSAKey generateRsa() throws NoSuchAlgorithmException {
+        KeyPair keyPair = generateRsaKey();
+        RSAPublicKey publicKey = (RSAPublicKey)keyPair.getPublic();
+        RSAPrivateKey privateKey = (RSAPrivateKey)keyPair.getPrivate();
+        return new RSAKey.Builder(publicKey)
+                .privateKey(privateKey)
+                .keyID(UUID.randomUUID().toString())
+                .build();
+    }
+
+    private static KeyPair generateRsaKey() throws NoSuchAlgorithmException {
+        KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
+        keyPairGenerator.initialize(2048);
+        return keyPairGenerator.generateKeyPair();
+    }
+
+    @Bean
+    JwtDecoder jwtDecoder(JWKSource<SecurityContext> jwkSource) {
+        return OAuth2AuthorizationServerConfiguration.jwtDecoder(jwkSource);
+    }
+}
+
+```
+- DataLoaderConfig
+```
+package com.jessica.taco.authorization.server.config;
+
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+import com.jessica.taco.authorization.server.dao.UserRepository;
+import com.jessica.taco.authorization.server.entity.User;
+
+@Configuration
+public class DataLoaderConfig {
+    @Bean
+    ApplicationRunner dataLoader(
+            UserRepository repo, PasswordEncoder encoder) {
+        return args -> {
+            repo.save(
+                    new User("habuma", encoder.encode("password"), "ROLE_ADMIN"));
+            repo.save(
+                    new User("tacochef", encoder.encode("password"), "ROLE_ADMIN"));
+        };
+    }
+}
+
+```
+- TacoCloudAuthorizationServerApplication
+```
+package com.jessica.taco.authorization.server;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class TacoCloudAuthorizationServerApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(TacoCloudAuthorizationServerApplication.class, args);
+	}
+
+}
+
+```
+- 启动server后，访问：http://localhost:9000/oauth2/authorize?response_type=code&client_id=taco-admin-client&redirect_uri=http://127.0.0.1:9090/login/oauth2/code/taco-admin-client&scope=writeIngredients+deleteIngredients， 会跳转到登录页面
+- 输入用户名密码登录之后，会跳转到Consent required页面
+![authorization-server-consent-require-page](authorization-server-consent-require-page.png)
+- 勾选scope，点击submit之后会跳转到回调页面，这里目前还是一个不存在的地址，但是可以从地址栏获取到有效的code，使用该code可以进一步获取token
+- 将以下命令中的$code替换为上一步中获取到的code，即可向授权服务器请求token
+```
+curl localhost:9000/oauth2/token \
+ -H"Content-type: application/x-www-form-urlencoded" \
+ -d"grant_type=authorization_code" \
+ -d"redirect_uri=http://127.0.0.1:9090/login/oauth2/code/taco-admin-client" \
+ -d"code=UnzEp9pMn4_rG7G_TXN6qnQkPdrs_DsiPbja-G9GlRNMZrMpiyHlDkTiz2wezGN0CFf-vX2ztdr98RBDcG5ND9n7D7yzqAyj90AytKIvnEIu7wqBLSAoDkeNFTK2LOSI" \
+ -u taco-admin-client:secret
+```
+- 获取到的token可以使用jwt进行解析
+![authorization-server-access-token](authorization-server-access-token.png)
+
+## 使用资源服务器保护 API
+- 资源服务器实际上只是一个位于 API 前面的过滤器，确保对需要授权的资源的请求包含有效的访问令牌
+- 需要添加以下依赖
+```
+<dependency>
+ <groupId>org.springframework.boot</groupId>
+ <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+</dependency>
+```
+- 配置authorication server
+```
+spring:
+    security:
+        oauth2:
+            resourceserver:
+                jwt:
+                    wk-set-uri: http:/ /localhost:9000/oauth2/jwks
+```
+- 配置SecurityFilterChain
+```
+@Bean
+SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    return http
+            .authorizeHttpRequests(auth -> auth.requestMatchers(AntPathRequestMatcher.antMatcher("/h2-console/**")).permitAll()
+                    .requestMatchers("/design", "/orders", "/current").hasRole("USER")
+                    .requestMatchers(HttpMethod.POST, "/api/ingredients").hasAuthority("SCOPE_writeIngredients")
+                    .requestMatchers(HttpMethod.DELETE, "/api/ingredients").hasAuthority("SCOPE_deleteIngredients")
+                    .requestMatchers("/", "/**").permitAll())
+            .oauth2ResourceServer(oauth2 -> oauth2.jwt())
+...
+}
+```
+- 实现api conrtoller
+```
+package com.example.tacos.controller;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.example.tacos.dao.IngredientRepository;
+import com.example.tacos.model.Ingredient;
+
+@RestController
+@RequestMapping(path = "/api/ingredients", produces = "application/json")
+public class IngredientController {
+    private IngredientRepository repo;
+
+    public IngredientController(IngredientRepository repo) {
+        this.repo = repo;
+    }
+
+    @GetMapping
+    public Iterable<Ingredient> allIngredients() {
+        return repo.findAll();
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public Ingredient saveIngredient(@RequestBody Ingredient ingredient) {
+        return repo.save(ingredient);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteIngredient(@PathVariable("id") String ingredientId) {
+        repo.deleteById(ingredientId);
+    }
+}
+```
+- 启动服务器，使用postman直接发送post请求来创建一个Ingredient，会返回401
+![resource-server-401](resource-server-401.png)
+- 添加Authorization header，包含之前获得的accessToken，则返回201
+![resource-server-201](resource-server-201.png)
+
+## 创建客户端
+- 需要添加以下依赖
+```
+<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-client</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-devtools</artifactId>
+			<scope>runtime</scope>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>org.projectlombok</groupId>
+			<artifactId>lombok</artifactId>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+				<configuration>
+					<excludes>
+						<exclude>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+						</exclude>
+					</excludes>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+```
+- application property配置：这里authorization server一定不要直接用127.0.0.1或者localhost，否则的话跟client就是同一个domain，cookie就会共用，JSESSIONID是存在cookie中的，authorization server登录成功之后，会设置JSESSIONID，导致重定向到client server 时使用的是authorization server的JSESSIONID，在client server中就找不到这个session，就会出现authorization request not found error，导致重定向到client server 失败，无法获取accessToken： https://stackoverflow.com/questions/50908023/using-spring-security-oauth-using-a-custom-oauth-provider-i-get-authorization。 可以修改host文件，添加 127.0.0.1 authserver 即可。
+```
+spring:
+  security:
+    oauth2:
+     client:
+       registration:
+         taco-admin-client:
+           provider: tacocloud
+           client-id: taco-admin-client
+           client-secret: secret
+           authorization-grant-type: authorization_code
+           redirect-uri: "http://127.0.0.1:9090/login/oauth2/code/{registrationId}"
+           scope: writeIngredients,deleteIngredients,openid
+       provider:
+         tacocloud:
+           issuer-uri: http://authserver:9000
+           authorization-uri: http://authserver:9000/oauth2/authorize
+           token-uri: http://authserver:9000/oauth2/token
+           jwk-set-uri: http://authserver:9000/oauth2/jwks
+           user-info-uri: http://authserver:9000/userinfo
+           user-name-attribute: sub
+server:
+  port: 9090
+```
+- security config: csrf一定要disable，因为我们这里实现的client比较简单，没有前端页面，需要用postman发请求，所以需要disable csrf，否则的话就会403
+```
+
+@EnableWebSecurity
+@Configuration
+public class SecurityConfig {
+  @Bean
+  SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+    http.authorizeHttpRequests(authorizeRequests -> authorizeRequests.anyRequest().authenticated())
+        .oauth2Login(
+            oauth2Login -> oauth2Login.loginPage("/oauth2/authorization/taco-admin-client"))
+        .oauth2Client(Customizer.withDefaults()).csrf((csrf) -> csrf.disable());
+    return http.build();
+  }
+
+}
+
+```
+- entity
+```
+@Data
+@AllArgsConstructor
+@NoArgsConstructor(access = AccessLevel.PRIVATE, force = true)
+public class Ingredient {
+
+  private final String id;
+
+  private final String name;
+
+  private final Type type;
+
+  public enum Type {
+    WRAP, PROTEIN, VEGGIES, CHEESE, SAUCE
+  }
+}
+```
+- service
+```
+public interface IngredientService {
+  Iterable<Ingredient> findAll();
+
+  Ingredient addIngredient(Ingredient ingredient);
+}
+
+
+//service的实现类不需要加@Service的注解，因为需要特殊处理
+public class RestIngredientService implements IngredientService {
+  private RestTemplate restTemplate;
+
+  public RestIngredientService(String accessToken) {
+    this.restTemplate = new RestTemplate();
+    if (accessToken != null) {
+      this.restTemplate.getInterceptors().add(getBearerTokenInterceptor(accessToken));
+    }
+  }
+
+  private ClientHttpRequestInterceptor getBearerTokenInterceptor(String accessToken) {
+    ClientHttpRequestInterceptor interceptor = new ClientHttpRequestInterceptor() {
+      @Override
+      public ClientHttpResponse intercept(HttpRequest request, byte[] bytes,
+          ClientHttpRequestExecution execution) throws IOException {
+        request.getHeaders().add("Authorization", "Bearer " + accessToken);
+        return execution.execute(request, bytes);
+      }
+    };
+    return interceptor;
+  }
+
+
+  public Iterable<Ingredient> findAll() {
+    return Arrays.asList(
+        restTemplate.getForObject("http://localhost:8080/api/ingredients", Ingredient[].class));
+  }
+
+  public Ingredient addIngredient(Ingredient ingredient) {
+    return restTemplate.postForObject("http://localhost:8080/api/ingredients", ingredient,
+        Ingredient.class);
+  }
+}
+
+```
+
+- service bean，这里一定要加@RequestScope注解，因为它需要从 SecurityContext提取身份验证，SecurityContext是Spring 根据每个请求的
+安全过滤器进行填充的； 应用程序启动时并没有为 SecurityContext创建的默认bean
+```
+@Configuration
+public class ServiceConfig {
+  @Bean
+  @RequestScope
+  IngredientService ingredientService(OAuth2AuthorizedClientService clientService) {
+    Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+
+    String accessToken = null;
+
+    if (authentication.getClass().isAssignableFrom(OAuth2AuthenticationToken.class)) {
+      OAuth2AuthenticationToken oauthToken = (OAuth2AuthenticationToken) authentication;
+      String clientRegistrationId = oauthToken.getAuthorizedClientRegistrationId();
+      if (clientRegistrationId.equals("taco-admin-client")) {
+        OAuth2AuthorizedClient client =
+            clientService.loadAuthorizedClient(clientRegistrationId, oauthToken.getName());
+        accessToken = client.getAccessToken().getTokenValue();
+      }
+    }
+    return new RestIngredientService(accessToken);
+  }
+}
+
+```
+
+- controller
+```
+@RestController
+@RequestMapping(path = "/ingredients", produces = "application/json")
+public class IngredientController {
+
+  private IngredientService ingredientService;
+
+  IngredientController(IngredientService ingredientService) {
+    this.ingredientService = ingredientService;
+  }
+
+  @GetMapping
+  public Iterable<Ingredient> allIngredients() {
+    return ingredientService.findAll();
+  }
+
+  @PostMapping
+  @ResponseStatus(HttpStatus.CREATED)
+  public Ingredient saveIngredient(@RequestBody Ingredient ingredient) {
+    return ingredientService.addIngredient(ingredient);
+  }
+
+}
+```
+
+- 启动resource server，authorization server，client server，client server一定要在authorization server启动成功后再启动
+- 首先使用浏览器访问：http://127.0.0.1:9090/ingredients，请求的过程如下：授权成功之后即可在页面看到数据
+    - http://127.0.0.1:9090/ingredients
+    - http://127.0.0.1:9090/oauth2/authorization/taco-admin-client
+    - http://authserver:9000/login
+    - http://authserver:9000/oauth2/authorize?response_type=code&client_id=taco-admin-client&scope=writeIngredients%20deleteIngredients%20openid&state=rxQGKBBDCGNnObUIHQRv_u2iPdk_rB4zk8hAuXM-QPU%3D&redirect_uri=http://127.0.0.1:9090/login/oauth2/code/taco-admin-client&nonce=F24V_6aZdaaucERwwbxOOJqn3lXvR9CiTlPCyd5_5uk
+    - http://127.0.0.1:9090/login/oauth2/code/taco-admin-client?code=-Zwc5UJBfpqV7j-fMM-I_UAP3qEdG1ISsZ7pv7E5OcDzyvX_-38XAEtO7MYEre4Ynx443scT3AlMELafSI-DsfV_7R5L1x-lvnqQLG0dEreYtotmg5wL6dHQ4u9S1pvx&state=-aHhDFi0KJ6lWJdp1KmUx3ID4VEs4D4EcHU4EESZzUg%3D
+    - http://127.0.0.1:9090/ingredients?continue
+- 拿到client server的Cookie：Cookie: JSESSIONID=1B71B3FC97913897978B9096C21D851D，在postman中发送post请求添加新的数据：
+![client-server-create-ingedient](client-server-create-ingedient.png)
+
+# 异步发送消息

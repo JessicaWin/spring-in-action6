@@ -9,3 +9,6 @@ spring:
           github:
             client-id: ${client_id}   #replace this with real value
             client-secret: ${client_secret}   #replace this with real value
+      resourceserver:
+        jwt:
+          jwk-set-uri: http://localhost:9000/oauth2/jwks
