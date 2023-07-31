@@ -1846,3 +1846,28 @@ public class IngredientController {
 ![client-server-create-ingedient](client-server-create-ingedient.png)
 
 # 异步发送消息
+## Java Message Service (JMS)
+- JMS 是一个 Java 标准，定义了用于消息代理的通用 API
+### 安装artemis
+- https://activemq.apache.org/components/artemis/download/
+- 下载解压之后，进入bin目录，执行： .\artemis create ${任意你想安装的目录}， 输入用户名密码进行安装
+- 启动broker
+```
+You can now start the broker by executing:
+
+   "D:\artemis\bin\artemis" run
+
+Or you can setup the broker as Windows service and run it in the background:
+
+   "D:\artemis\bin\artemis-service.exe" install
+   "D:\artemis\bin\artemis-service.exe" start
+
+   To stop the windows service:
+      "D:\artemis\bin\artemis-service.exe" stop
+
+   To uninstall the windows service
+      "D:\artemis\bin\artemis-service.exe" uninstall
+```
+## RabbitMQ
+## Advanced Message Queueing Protocol (AMQP)
+## Apache Kafk

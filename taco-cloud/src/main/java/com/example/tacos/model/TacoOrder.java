@@ -1,11 +1,10 @@
 package com.example.tacos.model;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-
 import org.hibernate.validator.constraints.CreditCardNumber;
-
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -20,42 +19,43 @@ import lombok.Data;
 
 @Data
 @Entity
-public class TacoOrder {
-	@Id
-	@GeneratedValue(strategy = GenerationType.AUTO)
-	private Long id;
+public class TacoOrder implements Serializable {
 
-	@NotBlank(message = "Delivery name is required")
-	private String deliveryName;
+  @Id
+  @GeneratedValue(strategy = GenerationType.AUTO)
+  private Long id;
 
-	@NotBlank(message = "Street is required")
-	private String deliveryStreet;
+  @NotBlank(message = "Delivery name is required")
+  private String deliveryName;
 
-	@NotBlank(message = "City is required")
-	private String deliveryCity;
+  @NotBlank(message = "Street is required")
+  private String deliveryStreet;
 
-	@NotBlank(message = "State is required")
-	@Size(min = 2, max = 2, message = "State length is 2")
-	private String deliveryState;
+  @NotBlank(message = "City is required")
+  private String deliveryCity;
 
-	@NotBlank(message = "Zip code is required")
-	private String deliveryZip;
+  @NotBlank(message = "State is required")
+  @Size(min = 2, max = 2, message = "State length is 2")
+  private String deliveryState;
 
-	@CreditCardNumber(message = "Not a valid credit card number")
-	private String ccNumber;
+  @NotBlank(message = "Zip code is required")
+  private String deliveryZip;
 
-	@Pattern(regexp = "^(0[1-9]|1[0-2])([\\/])([2-9][0-9])$", message = "Must be formatted MM/YY")
-	private String ccExpiration;
+  @CreditCardNumber(message = "Not a valid credit card number")
+  private String ccNumber;
 
-	@Digits(integer = 3, fraction = 0, message = "Invalid CVV")
-	private String ccCVV;
+  @Pattern(regexp = "^(0[1-9]|1[0-2])([\\/])([2-9][0-9])$", message = "Must be formatted MM/YY")
+  private String ccExpiration;
 
-	@OneToMany(cascade = CascadeType.ALL)
-	private List<Taco> tacos = new ArrayList<>();
+  @Digits(integer = 3, fraction = 0, message = "Invalid CVV")
+  private String ccCVV;
 
-	private Date placedAt = new Date();
+  @OneToMany(cascade = CascadeType.ALL)
+  private List<Taco> tacos = new ArrayList<>();
 
-	public void addTaco(Taco taco) {
-		this.tacos.add(taco);
-	}
+  private Date placedAt = new Date();
+
+  public void addTaco(Taco taco) {
+    this.tacos.add(taco);
+  }
 }

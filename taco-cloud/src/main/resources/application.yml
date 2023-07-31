@@ -12,3 +12,10 @@ spring:
       resourceserver:
         jwt:
           jwk-set-uri: http://localhost:9000/oauth2/jwks
+          
+  artemis:
+    user: jessica
+    password: passw0rd
+  jms:
+    template:
+      default-destination: tacocloud.order.queue
