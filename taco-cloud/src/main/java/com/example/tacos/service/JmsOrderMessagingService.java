@@ -17,4 +17,9 @@ public class JmsOrderMessagingService implements OrderMessagingService {
   public void sendOrder(TacoOrder order) {
     jms.send(session -> session.createObjectMessage(order));
   }
+
+  @Override
+  public TacoOrder receiveOrder() {
+    return (TacoOrder) jms.receiveAndConvert();
+  }
 }

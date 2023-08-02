@@ -1868,6 +1868,75 @@ Or you can setup the broker as Windows service and run it in the background:
    To uninstall the windows service
       "D:\artemis\bin\artemis-service.exe" uninstall
 ```
+### 发送消息
+- 配置queue name：
+    - 使用application文件配置默认queue name
+    ```
+    spring:
+      jms:
+        template:
+        default-destination: tacocloud.order.queue
+    ```
+    - 声明一个Destination的bean，可以配置多个queue
+    ```
+    @Bean
+    public Destination orderQueue() {
+    return new ActiveMQQueue("tacocloud.order.queue");
+    }
+    ```
+    - 
+- 发送消息之前进行格式转化
+    - MappingJackson2MessageConverter: 使用 Jackson 2 JSON 库将消息与JSON相互转化
+    - MarshallingMessageConverter 使用 JAXB 将消息与 XML 相互转换
+    - MessagingMessageConverter 将消息从消息传递抽象转换为并使用底层的消息有效负载的 MessageConverter 和JmsHeaderMapper 用于映射 JMS 标头和标准消息头
+    - SimpleMessageConverter： 将字符串与 TextMessage、字节数组与BytesMessage，Map 与MapMessage，Serializable和ObjectMessage进行相互转化
+    - SimpleMessageConverter是默认的转换器
+    - 要应用不同的消息转换器，所要做的就是声明一个实例选择转换器的bean。
+- 启动server之后，登录提交订单，即可查看message数据：http://localhost:8161/console/artemis/artemisQueues?nid=root-org.apache.activemq.artemis-0.0.0.0-acceptors-artemis
+
+### 接收消息
+- 接收消息时，可以选择拉模型，代码请求一条消息并等待消息到达，或者推送模型，当消息可用时会提交给代码。
+- JmsTemplate提供了几种接收消息的方法，但是它们都使用拉模型。 当调用其中一个方法来请求消息，线程会阻塞直到有消息可用
+- 可以选择使用推送模型，需要定义一个消息侦听器，只要有消息可用，就会调用该侦听器。
+
+#### JmsTemplate接收
+```
+@Service
+public class JmsOrderMessagingService implements OrderMessagingService {
+  private JmsTemplate jms;
+
+  public JmsOrderMessagingService(JmsTemplate jms) {
+    this.jms = jms;
+  }
+
+  @Override
+  public void sendOrder(TacoOrder order) {
+    jms.send(session -> session.createObjectMessage(order));
+  }
+
+  @Override
+  public TacoOrder receiveOrder() {
+    return (TacoOrder) jms.receiveAndConvert();
+  }
+}
+```
+
+#### 定义消息监听器
+- 要创建对 JMS 消息做出反应的消息侦听器，只需在方法上添加 @JmsListener 注解
+```
+@Service
+@Slf4j
+public class OrderListener {
+
+  @JmsListener(destination = "tacocloud.order.queue")
+  public void receiveOrder(TacoOrder order) throws Exception {
+    log.info("Received order: " + new ObjectMapper().writeValueAsString(order));
+  }
+
+}
+
+```
+
 ## RabbitMQ
 ## Advanced Message Queueing Protocol (AMQP)
 ## Apache Kafk

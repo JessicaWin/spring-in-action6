@@ -2,6 +2,7 @@ package com.example.tacos.api.controller;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -28,5 +29,11 @@ public class OrderApiController {
   public TacoOrder postOrder(@RequestBody TacoOrder order) {
     messageService.sendOrder(order);
     return repo.save(order);
+  }
+
+  @GetMapping(consumes = "application/json")
+  @ResponseStatus(HttpStatus.OK)
+  public TacoOrder pullOrder() throws Exception {
+    return messageService.receiveOrder();
   }
 }
