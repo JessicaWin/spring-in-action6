@@ -34,6 +34,7 @@ public class OrderApiController {
   @GetMapping(consumes = "application/json")
   @ResponseStatus(HttpStatus.OK)
   public TacoOrder pullOrder() throws Exception {
-    return messageService.receiveOrder();
+    TacoOrder order = messageService.receiveOrder();
+    return order;
   }
 }

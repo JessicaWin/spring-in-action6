@@ -1,13 +1,15 @@
 package com.example.tacos.service;
 
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jms.core.JmsTemplate;
-import org.springframework.stereotype.Service;
 import com.example.tacos.model.TacoOrder;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-@Service
+@Qualifier("jms")
 public class JmsOrderMessagingService implements OrderMessagingService {
   private JmsTemplate jms;
+  private final static ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
   public JmsOrderMessagingService(JmsTemplate jms) {
     this.jms = jms;
@@ -19,7 +21,9 @@ public class JmsOrderMessagingService implements OrderMessagingService {
   }
 
   @Override
-  public TacoOrder receiveOrder() {
-    return (TacoOrder) jms.receiveAndConvert();
+  public TacoOrder receiveOrder() throws Exception {
+    Object object = jms.receiveAndConvert();
+    return object == null ? null
+        : OBJECT_MAPPER.readValue(OBJECT_MAPPER.writeValueAsString(object), TacoOrder.class);
   }
 }

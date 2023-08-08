@@ -1869,10 +1869,20 @@ Or you can setup the broker as Windows service and run it in the background:
       "D:\artemis\bin\artemis-service.exe" uninstall
 ```
 ### 发送消息
+- pom
+```
+		<dependency>
+ 			<groupId>org.springframework.boot</groupId>
+ 			<artifactId>spring-boot-starter-artemis</artifactId>
+		</dependency>
+```
 - 配置queue name：
     - 使用application文件配置默认queue name
     ```
     spring:
+      artemis:
+        user: jessica
+        password: passw0rd
       jms:
         template:
         default-destination: tacocloud.order.queue
@@ -1936,7 +1946,98 @@ public class OrderListener {
 }
 
 ```
+- 需要注意的是方法不能有返回值，必须为void类型否则会抛出以下错误：
+```
+2019-09-17 16:05:06.651  WARN 26416 --- [enerContainer-1] o.s.j.l.DefaultMessageListenerContainer  : Execution of JMS message listener failed, and no ErrorHandler has been set.
+
+org.springframework.jms.listener.adapter.ReplyFailureException: Failed to send reply with payload []; nested exception is javax.jms.InvalidDestinationException: Cannot determine response destination: Request message does not contain reply-to destination, and no default response destination set.
+	at org.springframework.jms.listener.adapter.AbstractAdaptableMessageListener.handleResult(AbstractAdaptableMessageListener.java:285) ~[spring-jms-5.1.2.RELEASE.jar:5.1.2.RELEASE]
+	at org.springframework.jms.listener.adapter.MessagingMessageListenerAdapter.onMessage(MessagingMessageListenerAdapter.java:79) ~[spring-jms-5.1.2.RELEASE.jar:5.1.2.RELEASE]
+	at org.springframework.jms.listener.AbstractMessageListenerContainer.doInvokeListener(AbstractMessageListenerContainer.java:736) ~[spring-jms-5.1.2.RELEASE.jar:5.1.2.RELEASE]
+	at org.springframework.jms.listener.AbstractMessageListenerContainer.invokeListener(AbstractMessageListenerContainer.java:696) ~[spring-jms-5.1.2.RELEASE.jar:5.1.2.RELEASE]
+	at org.springframework.jms.listener.AbstractMessageListenerContainer.doExecuteListener(AbstractMessageListenerContainer.java:674) ~[spring-jms-5.1.2.RELEASE.jar:5.1.2.RELEASE]
+	at org.springframework.jms.listener.AbstractPollingMessageListenerContainer.doReceiveAndExecute(AbstractPollingMessageListenerContainer.java:318) [spring-jms-5.1.2.RELEASE.jar:5.1.2.RELEASE]
+	at org.springframework.jms.listener.AbstractPollingMessageListenerContainer.receiveAndExecute(AbstractPollingMessageListenerContainer.java:257) [spring-jms-5.1.2.RELEASE.jar:5.1.2.RELEASE]
+	at org.springframework.jms.listener.DefaultMessageListenerContainer$AsyncMessageListenerInvoker.invokeListener(DefaultMessageListenerContainer.java:1189) [spring-jms-5.1.2.RELEASE.jar:5.1.2.RELEASE]
+	at org.springframework.jms.listener.DefaultMessageListenerContainer$AsyncMessageListenerInvoker.executeOngoingLoop(DefaultMessageListenerContainer.java:1179) [spring-jms-5.1.2.RELEASE.jar:5.1.2.RELEASE]
+	at org.springframework.jms.listener.DefaultMessageListenerContainer$AsyncMessageListenerInvoker.run(DefaultMessageListenerContainer.java:1076) [spring-jms-5.1.2.RELEASE.jar:5.1.2.RELEASE]
+	at java.lang.Thread.run(Thread.java:748) [na:1.8.0_221]
+Caused by: javax.jms.InvalidDestinationException: Cannot determine response destination: Request message does not contain reply-to destination, and no default response destination set.
+	at org.springframework.jms.listener.adapter.AbstractAdaptableMessageListener.getResponseDestination(AbstractAdaptableMessageListener.java:393) ~[spring-jms-5.1.2.RELEASE.jar:5.1.2.RELEASE]
+	at org.springframework.jms.listener.adapter.AbstractAdaptableMessageListener.getResponseDestination(AbstractAdaptableMessageListener.java:366) ~[spring-jms-5.1.2.RELEASE.jar:5.1.2.RELEASE]
+	at org.springframework.jms.listener.adapter.AbstractAdaptableMessageListener.handleResult(AbstractAdaptableMessageListener.java:281) ~[spring-jms-5.1.2.RELEASE.jar:5.1.2.RELEASE]
+	... 10 common frames omitted
+
+```
+
 
 ## RabbitMQ
+- 接收和发送JMS 消息时需要指定queue的名称，而AMQP 消息使用交换器的名称和路由键进行寻址，它们与接收者正在侦听的队列解耦
+- 当消息到达 RabbitMQ 代理时，它会转到它所在的交换器，交换器根据根据交换器的类型，交换器和队列之间的绑定，以及消息的路由键将消息路由到一个或多个队列
+- 交换器有以下类型：
+    - Default：由broker自动创建的特殊交换器。 它将消息发送到队列名称与消息路由键相同的队列
+    - Direct: 将消息发送到队列的binding key与消息的routing key相同的队列
+    - Topic： 将消息发送到队列的binding key（可以包含通配符）与消息的routing key匹配的队列
+    - Fanout： 将消息发送给所有的队列
+    - Headers： 与Topic类似，不同的是使用消息的header值而不是routing key与binding key进行匹配
+    - Dead letter: 接收所有无法投递的消息，无法投递意味着它们不匹配任何定义的交换到队列绑定
+
+### 安装artemis
+- 安装之前首先停掉artemis服务器，否则会RabbitMQ会启动失败，因为两个broker都需要使用5672端口
+    - 出现如下错误时，表示端口5672被占用了，我的是被ArtemisMQ占用了，停掉ArtemisMQ即可： init terminating in do_boot ({error,{could_not_start_listener,::,5672,{{shut
+- 安装erlang： https://www.erlang.org/patches/otp-25.3.2
+- 安装RabbitMQ：https://www.rabbitmq.com/install-windows.html#installer
+- 安装RabbitMQ管理页面插件，在sbin目录下执行rabbitmq-plugins enable rabbitmq_management
+- 访问http://localhost:15672/，默认用户名和密码为guest/guest
+- 打开队列页面：http://localhost:15672/#/queues， 创建队列：tacocloud.order.queue
+
+### 发送和接收消息
+- pom
+```
+		<dependency>
+	 		<groupId>org.springframework.boot</groupId>
+	 		<artifactId>spring-boot-starter-amqp</artifactId>
+		</dependency>
+```
+- application property文件
+```
+spring:
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+```
+- service
+```
+
+@Service
+public class RabbitOrderMessagingService implements OrderMessagingService {
+  private RabbitTemplate rabbit;
+
+  public RabbitOrderMessagingService(RabbitTemplate rabbit) {
+    this.rabbit = rabbit;
+  }
+
+  public void sendOrder(TacoOrder order) {
+    rabbit.convertAndSend("tacocloud.order.queue", order, new MessagePostProcessor() {
+      @Override
+      public Message postProcessMessage(Message message) throws AmqpException {
+        MessageProperties props = message.getMessageProperties();
+        props.setHeader("X_ORDER_SOURCE", "WEB");
+        return message;
+      }
+    });
+  }
+
+  @Override
+  public TacoOrder receiveOrder() throws Exception {
+    return rabbit.receiveAndConvert("tacocloud.order.queue",
+        new ParameterizedTypeReference<TacoOrder>() {});
+  }
+}
+
+```
+
 ## Advanced Message Queueing Protocol (AMQP)
 ## Apache Kafk

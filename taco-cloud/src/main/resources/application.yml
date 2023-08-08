@@ -13,9 +13,14 @@ spring:
         jwt:
           jwk-set-uri: http://localhost:9000/oauth2/jwks
           
-  artemis:
-    user: jessica
-    password: passw0rd
+ # artemis:
+ #   user: jessica
+ #   password: passw0rd
   jms:
     template:
       default-destination: tacocloud.order.queue
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
