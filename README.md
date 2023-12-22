@@ -2038,6 +2038,169 @@ public class RabbitOrderMessagingService implements OrderMessagingService {
 }
 
 ```
+- listener
+```
+@Component
+public class OrderListener {
+ 
+ private KitchenUI ui;
+ @Autowired
+ public OrderListener(KitchenUI ui) {
+ this.ui = ui;
+ }
+ @RabbitListener(queues = "tacocloud.order.queue")
+ public void receiveOrder(TacoOrder order) {
+ ui.displayOrder(order);
+ }
+ 
+}
+```
 
 ## Advanced Message Queueing Protocol (AMQP)
 ## Apache Kafk
+- Kafka 设计为在集群中运行，提供出色的可扩展性。通过将其主题划分到集群中的所有实例，它具有非常强的弹性
+- Kafka 主题在集群中的所有代理之间复制。 集群中的每个节点充当一个或多个主题的领导者，负责该主题的数据和将其复制到集群中的其他节点
+
+### 安装kafka
+
+### 发送和接收消息
+- 添加依赖
+```
+<dependency>
+    <groupId>org.springframework.kafka</groupId>
+    <artifactId>spring-kafka</artifactId>
+</dependency>
+```
+- 配置server
+```
+spring:
+ kafka:
+ bootstrap-servers:
+ - localhost:9092
+```
+- 发送消息
+```
+@Service
+public class KafkaOrderMessagingService implements OrderMessagingService {
+    
+    private KafkaTemplate<String, TacoOrder> kafkaTemplate;
+    
+    public KafkaOrderMessagingService(KafkaTemplate<String, TacoOrder> kafkaTemplate) {
+        this.kafkaTemplate = kafkaTemplate;
+    }
+    
+    @Override
+    public void sendOrder(TacoOrder order) {
+        kafkaTemplate.send("tacocloud.orders.topic", order);
+    }
+ 
+}
+```
+- 接收消息，kafkaTemplate没有提供任何接收消息的接口，只能通过listener来接收
+```
+@Component
+public class OrderListener {
+    private KitchenUI ui;
+
+    public OrderListener(KitchenUI ui) {
+        this.ui = ui;
+    }
+
+    @KafkaListener(topics="tacocloud.orders.topic")
+    public void handle(TacoOrder order) {
+        ui.displayOrder(order);
+    }
+}
+```
+
+# Spring Integration
+- 集成流程由以下一个或多个组件组成。
+    - 通道——将消息从一个元素传递到另一个元素
+    - 过滤器——根据某些条件有条件地允许消息通过流
+    - 转换器——更改消息值和/或将消息有效负载从一种类型到另一种类型
+    - 路由器 - 将消息定向到多个通道之一，通常基于消息标头
+    - 拆分器 - 将传入消息拆分为两个或多个消息，每个消息发送到不同的通道
+    - 聚合器——与分离器相反； 合并从多个通道传入的消息到单个消息
+    - 服务激活器——将消息交给某些 Java 方法进行处理，然后在输出通道上发布返回值
+    - 通道适配器——将通道连接到某些外部系统或传输； 能接受输入或写入外部系统
+    - 
+- Spring Integration 提供了多种通道实现，包括以下内容：
+    - PublishSubscribeChannel——发布到 PublishSubscribe Channel 的消息被传递给一个或多个消费者。 如果存在多个消费者，则所有消费者都会收到该消息。
+    - QueueChannel - 发布到 QueueChannel 中的消息将存储在队列中，直到被消费者以先进先出 (FIFO) 方式拉出。 如果存在多个消费者，则只有其中一个接收到该消息。
+    - PriorityChannel - 与 QueueChannel 类似，但与 FIFO 行为不同，消息由消费者根据消息优先级标头拉取。
+    - RendezvousChannel - 与 QueueChannel 类似，不同之处在于发送者会阻塞通道，直到消费者收到消息为止，从而有效地同步发送者与消费者。
+    - DirectChannel - 与 PublishSubscribeChannel 类似，但通过在与发送者相同的线程中调用消费者来向单个消费者发送消息。 这允许交易跨越整个通道。
+    - ExecutorChannel——与 DirectChannel 类似，但消息调度是通过 TaskExecutor 进行的，发生在与发送者分开的线程中。 此通道类型不支持跨通道的交易。
+    - FluxMessageChannel——基于 Project Reactor 的 Flux 的 Reactive Streams Publisher 消息通道
+- 可以将过滤器放置在集成管道的中间，以允许或禁止消息继续进行流程中的下一步
+- 转换器对消息执行一些操作，通常会产生不同的消息，并且可能会产生不同的有效负载类型。 转换可以很简单，例如对数字执行数学运算或操作字符串值。 或者转换可以更复杂，例如使用表示 ISBN 的字符串值来查找并返回相应书籍的详细信息。
+- 路由器基于某些路由标准，允许在集成流中进行分支，将消息定向到不同的通道
+- 配置
+    - pom
+    ```
+    	<dependency>
+		 	<groupId>org.springframework.boot</groupId>
+		 	<artifactId>spring-boot-starter-integration</artifactId>
+		</dependency>
+		<dependency>
+		 	<groupId>org.springframework.integration</groupId>
+			<artifactId>spring-integration-file</artifactId>
+		</dependency>
+    ```
+    - geteway
+    ```
+    @MessagingGateway(defaultRequestChannel = "textInChannel")
+    public interface FileWriterGateway {
+        void writeToFile(@Header(FileHeaders.FILENAME) String filename, String data);
+    }
+    ```
+    - transformer and message handler
+    ```
+    @Configuration
+    public class FileWriterIntegrationConfig {
+        @Bean
+        @Transformer(inputChannel = "textInChannel", outputChannel = "fileWriterChannel")
+        public GenericTransformer<String, String> upperCaseTransformer() {
+            return text -> text.toUpperCase();
+        }
+
+        @Bean
+        @ServiceActivator(inputChannel = "fileWriterChannel")
+        public FileWritingMessageHandler fileWriter() {
+            FileWritingMessageHandler handler = new FileWritingMessageHandler(new File("/tmp/files"));
+            handler.setExpectReply(false);
+            handler.setFileExistsMode(FileExistsMode.APPEND);
+            handler.setAppendNewLine(true);
+            return handler;
+        }
+    }
+
+    ```
+    - controller
+    ```
+    @RestController()
+    @RequestMapping(path = "/integration")
+    public class IntegrationTestController {
+
+        @Autowired
+        private FileWriterGateway fileWriterGateway;
+
+        @PostMapping(path = "/write")
+        public void writeToFile(@RequestParam String fileName, @RequestParam String fileBody) {
+            fileWriterGateway.writeToFile(fileName, fileBody);
+        }
+    }
+    ```
+    - 向http://localhost:8080/integration/write?fileName=testFile&fileBody=test发送请求，文件会保存在/tmp/files/testFile
+
+# Reactive APIs
+## Spring WebFlux
+- event loop
+    - 在事件循环中，一切都作为事件处理，包括来自数据库和网络操作等密集操作的请求和回调。
+    - 当需要耗时的操作时，事件循环会注册一个回调以并行执行该操作，同时继续处理其他事件。
+    - 当操作完成时，事件循环将其视为事件，与请求相同。 
+    - 因此，异步 Web 框架能够在大请求量下使用更少的线程更好地扩展，从而减少线程管理的开销。 
+    - Spring 提供了一个主要基于其 Project Reactor 的非阻塞、异步 Web 框架，以满足 Web 应用程序和 API 中更高的可扩展性的需求。 
+![event-loop](event-loop.png)
+
+- 
